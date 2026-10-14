@@ -77,8 +77,8 @@ function document(body) {
 <style>
 body {
   margin:0;
-  background:#f3f6f3;
-  color:#243c30;
+  background:#F4F7FC;
+  color:#14234B;
   font:16px Arial,sans-serif
 }
 header {
