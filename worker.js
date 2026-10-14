@@ -124,7 +124,7 @@ section,.card {
   gap:12px
 }
 .grid .card {margin:0}
-.card img {max-width:100%;height:220px;object-fit:contain}
+.card p:first-of-type {color:#078ED5;font-size:22px;font-weight:bold}
 .flex {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .flex button {flex-shrink:0}
 .small {font-size:13px;color:#52685b}
@@ -195,7 +195,7 @@ function render(){
 
     c.append(
       el('h3',p.name),
-      el('p','Detalle: '+pesos(p.retail)),
+      el('p','Detalle: '+pesos(p.retail))
       el('p','Mayor desde 2 unidades: '+pesos(p.wholesale)),
       el('p','Stock: '+p.stock)
     );
