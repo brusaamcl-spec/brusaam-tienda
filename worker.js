@@ -134,7 +134,6 @@ section,.card {
 </style>
 </head>
 <body>
-<header>
 <header><img src="https://res.cloudinary.com/oobzcqc2/image/upload/v1791998382/IMG_20260517_093131_502.webp" alt="Logo Brusaam" style="width:150px;max-width:65%;height:auto;border-radius:50%">
 <div class="small">Limpieza y cuidado personal</div>
 <nav><a href="/">Tienda</a> · <a href="/admin">Administración</a></nav>
