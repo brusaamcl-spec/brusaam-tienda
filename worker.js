@@ -87,12 +87,12 @@ header {
   text-align:center;
   box-shadow:0 1px 4px #ddd
 }
-h1 {margin:0;color:#28563f}
+h1 {margin:0;color:#6524AD}
 main {max-width:980px;margin:auto;padding:16px}
-a {color:#28563f}
+a {color:#6524AD}
 nav {margin-top:12px}
 button,.btn {
-  background:#28563f;
+  background:#6524AD;
   color:white;
   border:0;
   border-radius:8px;
