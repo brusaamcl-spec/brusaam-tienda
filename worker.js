@@ -613,8 +613,8 @@ function checkProduct(p){
     p.stock<0||
     typeof p.image!=='string'||
     p.image.length>1500||
-    (!!p.image&&!/^https:\\/\\//i.test(p.image))
-  )return false;
+        (!!p.image&&!p.image.startsWith("https://"))
+    return false;
 
   return true;
 }
