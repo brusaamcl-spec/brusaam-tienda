@@ -124,7 +124,6 @@ section,.card {
   gap:12px
 }
 .grid .card {margin:0}
-.card p:first-of-type {color:#078ED5;font-size:22px;font-weight:bold}
 .flex {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .flex button {flex-shrink:0}
 .small {font-size:13px;color:#52685b}
