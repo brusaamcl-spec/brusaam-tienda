@@ -613,7 +613,7 @@ function checkProduct(p){
     p.stock<0||
     typeof p.image!=='string'||
     p.image.length>1500||
-        (!!p.image&&!p.image.startsWith("https://"))
+    !!p.image&&!p.image.startsWith("https://")
     return false;
 
   return true;
