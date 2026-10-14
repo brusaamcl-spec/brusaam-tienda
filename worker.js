@@ -1,5 +1,6 @@
 
 const encoder = new TextEncoder();
+
 const json = (data, status = 200, headers = {}) =>
   Response.json(data, {
     status,
@@ -73,7 +74,7 @@ function document(body) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Brusaam</title>
+<title>Brusaam | La excelencia en tu hogar</title>
 <style>
 body {
   margin:0;
@@ -124,6 +125,24 @@ section,.card {
   gap:12px
 }
 .grid .card {margin:0}
+.grid .card p:first-of-type {
+  color:#078ED5;
+  font-size:22px;
+  font-weight:700
+}
+.grid .card h3 {
+  margin:10px 0;
+  color:#14234B
+}
+.grid .card img {
+  display:block;
+  margin:0 auto 12px
+}
+.card img {
+  max-width:100%;
+  height:220px;
+  object-fit:contain
+}
 .flex {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .flex button {flex-shrink:0}
 .small {font-size:13px;color:#52685b}
@@ -133,9 +152,17 @@ section,.card {
 </style>
 </head>
 <body>
-<header><img src="https://res.cloudinary.com/oobzcqc2/image/upload/IMG_20260517_093131_502.webp" alt="Logo Brusaam" style="width:150px;max-width:65%;height:auto;border-radius:50%">
+<header>
+<img
+ src="https://res.cloudinary.com/oobzcqc2/image/upload/IMG_20260517_093131_502.webp"
+ alt="Logo Brusaam"
+ style="width:150px;max-width:65%;height:auto;border-radius:50%"
+>
 <div class="small">Limpieza y cuidado personal</div>
-<nav><a href="/">Tienda</a> · <a href="/admin">Administración</a></nav>
+<nav>
+<a href="/">Tienda</a> ·
+<a href="/admin">Administración</a>
+</nav>
 </header>
 <main>${body}</main>
 </body>
@@ -158,13 +185,17 @@ const shop = `
 <h2>Catálogo de productos</h2>
 <input id="buscar" placeholder="Buscar productos">
 <div id="catalogo" class="grid"></div>
+
 <section>
 <h2>Mi carrito</h2>
 <div id="items"></div>
 <h3 id="total">Total: $0</h3>
 <button id="enviar">Enviar pedido por WhatsApp</button>
-<p class="small">Precios y stock sujetos a confirmación al recibir el pedido.</p>
+<p class="small">
+Precios y stock sujetos a confirmación al recibir el pedido.
+</p>
 </section>
+
 <script>
 let productos=[],carrito={};
 const pesos=n=>'$'+Number(n).toLocaleString('es-CL');
@@ -185,7 +216,7 @@ function render(){
     const c=el('div');
     c.className='card';
 
-        if(p.image && p.image.startsWith("https://")){
+    if(p.image && p.image.startsWith("https://")){
       const im=el('img');
       im.src=p.image;
       im.alt=p.name;
@@ -194,13 +225,14 @@ function render(){
 
     c.append(
       el('h3',p.name),
-      el('p','Detalle: '+pesos(p.retail))
+      el('p','Detalle: '+pesos(p.retail)),
       el('p','Mayor desde 2 unidades: '+pesos(p.wholesale)),
       el('p','Stock: '+p.stock)
     );
 
     const row=el('div');
     row.className='flex';
+
     const inp=el('input');
     inp.type='number';
     inp.min='1';
@@ -210,6 +242,7 @@ function render(){
 
     const b=el('button','Agregar');
     b.disabled=p.stock<1;
+
     b.onclick=()=>{
       const n=Number(inp.value);
       if(!Number.isInteger(n)||n<1||n+(carrito[p.id]||0)>p.stock){
@@ -234,14 +267,18 @@ function update(){
   for(const [id,n] of Object.entries(carrito)){
     const p=productos.find(x=>String(x.id)===id);
     if(!p)continue;
+
     const sub=unit(p,n)*n;
     total+=sub;
+
     const row=el('p',n+' x '+p.name+' — '+pesos(sub)+' ');
     const b=el('button','Quitar');
+
     b.onclick=()=>{
       delete carrito[id];
       update();
     };
+
     row.append(b);
     t.append(row);
   }
@@ -286,7 +323,8 @@ fetch('/api/productos')
     render();
   })
   .catch(()=>{
-    document.getElementById('catalogo').textContent='No se pudo cargar el catálogo';
+    document.getElementById('catalogo').textContent=
+      'No se pudo cargar el catálogo';
   });
 </script>`;
 
@@ -345,8 +383,11 @@ const admin = `
 <button type="button" id="subirFoto">Subir fotografía seleccionada</button>
 <p id="fotoEstado" class="small" role="status"></p>
 
-<img id="fotoVista" alt="Vista previa de fotografía"
-style="display:none;max-width:200px;max-height:180px;object-fit:contain">
+<img
+ id="fotoVista"
+ alt="Vista previa de fotografía"
+ style="display:none;max-width:200px;max-height:180px;object-fit:contain"
+>
 
 <label>URL de fotografía HTTPS (se completa automáticamente)
 <input id="image" type="url" placeholder="https://...">
@@ -450,13 +491,17 @@ async function cargar(){
 
   for(const p of lista){
     const row=document.createElement('p');
-    row.textContent=p.name+' — $'+p.retail+' / $'+p.wholesale+' — stock '+p.stock+' ';
+    row.textContent=
+      p.name+' — $'+p.retail+' / $'+p.wholesale+' — stock '+p.stock+' ';
 
     const edit=document.createElement('button');
     edit.textContent='Editar';
+
     edit.onclick=()=>{
-      for(const k of ['id','name','category','description','retail','wholesale','stock','image'])
-        $(k).value=p[k]??'';
+      for(const k of [
+        'id','name','category','description',
+        'retail','wholesale','stock','image'
+      ])$(k).value=p[k]??'';
 
       $('active').checked=!!p.active;
       $('foto').value='';
@@ -472,6 +517,7 @@ async function cargar(){
     const del=document.createElement('button');
     del.className='danger';
     del.textContent='Eliminar';
+
     del.onclick=async()=>{
       if(!confirm('¿Eliminar '+p.name+'?'))return;
       try{
@@ -507,7 +553,8 @@ $('subirFoto').onclick=async()=>{
     ||file.size>5*1024*1024
     ||file.size===0
   ){
-    $('fotoEstado').textContent='Selecciona JPG, PNG o WebP de máximo 5 MB.';
+    $('fotoEstado').textContent=
+      'Selecciona JPG, PNG o WebP de máximo 5 MB.';
     return;
   }
 
@@ -611,8 +658,8 @@ function checkProduct(p){
     p.stock<0||
     typeof p.image!=='string'||
     p.image.length>1500||
-        (!!p.image&&!p.image.startsWith("https://"))
-    ) return false;
+    (!!p.image&&!p.image.startsWith("https://"))
+  )return false;
 
   return true;
 }
