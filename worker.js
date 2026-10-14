@@ -185,7 +185,7 @@ function render(){
     const c=el('div');
     c.className='card';
 
-    if(p.image&&/^https:\\/\\//.test(p.image)){
+        if(p.image && p.image.startsWith("https://")){
       const im=el('img');
       im.src=p.image;
       im.alt=p.name;
