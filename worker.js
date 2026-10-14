@@ -2,26 +2,43 @@
 /*
  BRUSAAM - TIENDA ONLINE
  Cloudflare Workers + D1 + Cloudinary
- Actualización: inicio, secciones, categorías,
- fotografías, carrito y administración.
+
+ Incluye:
+ - Categorías y subcategorías con imágenes
+ - Destacados, Pack Ahorro, Ofertas y Box Pyme
+ - Papel higiénico por paquete o manga
+ - Despacho La Serena $2.000 / Coquimbo $1.500
+ - Retiro gratis
+ - Despacho local gratis desde $30.000
+ - WhatsApp, Instagram y TikTok
+ - Diseño de Canva configurable
+ - Administración privada
+
+ Conserva el binding D1: DB
+ Conserva los secretos:
+ ADMIN_PASSWORD
+ SESSION_SECRET
+ CLOUDINARY_API_KEY
+ CLOUDINARY_API_SECRET
 */
 
-const LOGO_ORIGINAL =
-  "https://res.cloudinary.com/oobzcqc2/image/upload/IMG_20260517_093131_502.webp";
+const CONFIG = {
+  cloud: "oobzcqc2",
+  whatsapp: "56966282007",
+  instagram: "https://www.instagram.com/comercializadora_brusaam/",
+  tiktok: "https://www.tiktok.com/@com_brusaam",
+  logo: "https://res.cloudinary.com/oobzcqc2/image/upload/IMG_20260517_093131_502.webp",
+  cookie: "brusaam_session"
+};
 
-const CLOUD_NAME = "oobzcqc2";
-const WHATSAPP = "56966282007";
-const COOKIE = "brusaam_session";
-const encoder = new TextEncoder();
-
-const SECCIONES = [
-  ["destacados", "Los más destacados"],
-  ["pack_ahorro", "Pack Ahorro"],
-  ["ofertas", "Ofertas"],
-  ["box_pyme", "Box Pyme"]
+const SECTIONS = [
+  ["destacados", "Los más destacados", "⭐"],
+  ["pack_ahorro", "Pack Ahorro", "📦"],
+  ["ofertas", "Ofertas", "🏷️"],
+  ["box_pyme", "Box Pyme", "🏪"]
 ];
 
-const CATEGORIAS_INICIALES = {
+const DEFAULT_CATEGORIES = {
   "Limpieza del hogar": [
     "Detergentes y suavizantes",
     "Cloros y desinfectantes",
@@ -43,7 +60,7 @@ const CATEGORIAS_INICIALES = {
     "Papel higiénico",
     "Toallas de papel",
     "Servilletas",
-    "Otros de papelería"
+    "Pañuelos y otros"
   ],
   "Otros productos": [
     "Insecticidas",
@@ -54,137 +71,140 @@ const CATEGORIAS_INICIALES = {
   ]
 };
 
-function respuesta(data, status = 200, headers = {}) {
+const enc = new TextEncoder();
+
+function json(data, status = 200, extra = {}) {
   return Response.json(data, {
     status,
     headers: {
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
-      ...headers
+      ...extra
     }
   });
 }
 
-function textoSeguro(valor, max = 200) {
-  return String(valor ?? "").trim().slice(0, max);
-}
-
-function esImagen(url) {
-  return !url ||
+function validImage(value) {
+  return typeof value === "string" &&
+    value.length <= 1500 &&
     (
-      typeof url === "string" &&
-      url.length <= 1500 &&
-      url.startsWith("https://")
+      value === "" ||
+      /^https:\/\/[^\s"'<>]+$/i.test(value)
     );
 }
 
-function base64url(bytes) {
-  let str = "";
-  for (const b of bytes) {
-    str += String.fromCharCode(b);
-  }
-  return btoa(str)
+function integer(n, min = 0) {
+  return Number.isSafeInteger(n) && n >= min;
+}
+
+function b64(bytes) {
+  let s = "";
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s)
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
 }
 
-async function firmar(valor, secreto) {
+async function signature(message, secret) {
   const key = await crypto.subtle.importKey(
     "raw",
-    encoder.encode(secreto),
+    enc.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"]
   );
 
-  const firma = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    encoder.encode(valor)
-  );
-
-  return base64url(new Uint8Array(firma));
+  return b64(new Uint8Array(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      enc.encode(message)
+    )
+  ));
 }
 
-function cookieActual(request) {
+function getCookie(request) {
   const cookies = request.headers.get("Cookie") || "";
   const item = cookies
     .split(";")
     .map(x => x.trim())
-    .find(x => x.startsWith(COOKIE + "="));
+    .find(x => x.startsWith(CONFIG.cookie + "="));
 
-  return item ? item.slice(COOKIE.length + 1) : "";
+  return item ? item.slice(CONFIG.cookie.length + 1) : "";
 }
 
-async function autorizado(request, env) {
+async function authenticated(request, env) {
   if (!env.SESSION_SECRET) return false;
 
-  const partes = cookieActual(request).split(".");
-  if (partes.length !== 2) return false;
+  const parts = getCookie(request).split(".");
+  if (parts.length !== 2) return false;
 
-  const [vence, firma] = partes;
+  const [expires, received] = parts;
 
-  if (!/^\d{13}$/.test(vence)) return false;
-  if (Number(vence) <= Date.now()) return false;
+  if (!/^\d{13}$/.test(expires) ||
+      Number(expires) <= Date.now()) {
+    return false;
+  }
 
-  const esperada = await firmar(
-    vence,
+  const expected = await signature(
+    expires,
     env.SESSION_SECRET
   );
 
-  if (firma.length !== esperada.length) return false;
+  if (expected.length !== received.length) return false;
 
-  let diferencia = 0;
-  for (let i = 0; i < firma.length; i++) {
-    diferencia |=
-      firma.charCodeAt(i) ^ esperada.charCodeAt(i);
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) {
+    diff |= expected.charCodeAt(i) ^
+      received.charCodeAt(i);
   }
 
-  return diferencia === 0;
+  return diff === 0;
 }
 
-function origenValido(request) {
+function sameOrigin(request) {
   return request.headers.get("Origin") ===
     new URL(request.url).origin;
 }
 
-async function inicializar(env) {
-  if (!env.DB) throw Error("Falta conexión D1");
+/* BASE DE DATOS */
 
-  const columnas = await env.DB.prepare(
+async function setup(env) {
+  if (!env.DB) throw Error("Falta el binding DB");
+
+  const info = await env.DB.prepare(
     "PRAGMA table_info(products)"
   ).all();
 
-  if (!columnas.results?.length) {
-    throw Error("No existe la tabla products");
+  if (!info.results?.length) {
+    throw Error("No existe la tabla products en D1");
   }
 
-  const existentes = new Set(
-    columnas.results.map(x => x.name)
+  const columns = new Set(
+    info.results.map(x => x.name)
   );
 
-  const adicionales = [
+  const additions = [
     ["subcategory", "TEXT NOT NULL DEFAULT ''"],
     ["destacados", "INTEGER NOT NULL DEFAULT 0"],
     ["pack_ahorro", "INTEGER NOT NULL DEFAULT 0"],
     ["ofertas", "INTEGER NOT NULL DEFAULT 0"],
-    ["box_pyme", "INTEGER NOT NULL DEFAULT 0"]
+    ["box_pyme", "INTEGER NOT NULL DEFAULT 0"],
+    ["manga_price", "INTEGER NOT NULL DEFAULT 0"],
+    ["packs_per_manga", "INTEGER NOT NULL DEFAULT 0"]
   ];
 
-  for (const [nombre, tipo] of adicionales) {
-    if (!existentes.has(nombre)) {
+  for (const [name, type] of additions) {
+    if (!columns.has(name)) {
       try {
         await env.DB.prepare(
-          "ALTER TABLE products ADD COLUMN " +
-          nombre + " " + tipo
+          `ALTER TABLE products ADD COLUMN ${name} ${type}`
         ).run();
-      } catch (error) {
-        if (!String(error.message).includes(
+      } catch (e) {
+        if (!String(e.message).includes(
           "duplicate column"
-        )) {
-          throw error;
-        }
+        )) throw e;
       }
     }
   }
@@ -205,7 +225,7 @@ async function inicializar(env) {
       name TEXT NOT NULL,
       image TEXT NOT NULL DEFAULT '',
       position INTEGER NOT NULL DEFAULT 0,
-      UNIQUE(category_id,name)
+      UNIQUE(category_id, name)
     )
   `).run();
 
@@ -232,92 +252,100 @@ async function inicializar(env) {
     )
   `).run();
 
-  for (const [slug, title] of SECCIONES) {
+  for (const [slug, title] of SECTIONS) {
     await env.DB.prepare(`
       INSERT OR IGNORE INTO shop_sections
       (slug,title,image) VALUES(?,?,'')
     `).bind(slug, title).run();
   }
 
-  await env.DB.prepare(`
-    INSERT OR IGNORE INTO shop_settings
-    (key,value) VALUES('logo',?)
-  `).bind(LOGO_ORIGINAL).run();
+  for (const [key, value] of [
+    ["logo", CONFIG.logo],
+    ["design", ""]
+  ]) {
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO shop_settings
+      (key,value) VALUES(?,?)
+    `).bind(key, value).run();
+  }
 
-  let posicion = 0;
+  let order = 0;
 
-  for (const [categoria, subs] of
-    Object.entries(CATEGORIAS_INICIALES)) {
+  for (const [name, subs] of
+    Object.entries(DEFAULT_CATEGORIES)) {
 
     await env.DB.prepare(`
       INSERT OR IGNORE INTO shop_categories
       (name,position) VALUES(?,?)
-    `).bind(categoria, posicion++).run();
+    `).bind(name, order++).run();
 
-    const fila = await env.DB.prepare(`
+    const cat = await env.DB.prepare(`
       SELECT id FROM shop_categories WHERE name=?
-    `).bind(categoria).first();
+    `).bind(name).first();
 
-    let orden = 0;
+    let subOrder = 0;
 
     for (const sub of subs) {
       await env.DB.prepare(`
         INSERT OR IGNORE INTO shop_subcategories
         (category_id,name,position)
         VALUES(?,?,?)
-      `).bind(fila.id, sub, orden++).run();
+      `).bind(cat.id, sub, subOrder++).run();
     }
   }
 }
 
-async function datosTienda(env) {
-  const [
-    productos,
-    categorias,
-    subcategorias,
-    secciones,
-    logo
-  ] = await Promise.all([
-    env.DB.prepare(`
-      SELECT id,name,category,subcategory,
-      description,retail,wholesale,
-      min_qty,stock,image,
-      destacados,pack_ahorro,ofertas,box_pyme
-      FROM products
-      WHERE active=1
-      ORDER BY name
-    `).all(),
+async function shopData(env, admin = false) {
+  const [p, c, s, sections, settings] =
+    await Promise.all([
+      env.DB.prepare(admin
+        ? "SELECT * FROM products ORDER BY id DESC"
+        : `SELECT id,name,category,subcategory,
+           description,retail,wholesale,min_qty,
+           stock,image,destacados,pack_ahorro,
+           ofertas,box_pyme,manga_price,
+           packs_per_manga
+           FROM products
+           WHERE active=1 ORDER BY name`
+      ).all(),
 
-    env.DB.prepare(`
-      SELECT * FROM shop_categories
-      ORDER BY position,name
-    `).all(),
+      env.DB.prepare(`
+        SELECT * FROM shop_categories
+        ORDER BY position,name
+      `).all(),
 
-    env.DB.prepare(`
-      SELECT * FROM shop_subcategories
-      ORDER BY position,name
-    `).all(),
+      env.DB.prepare(`
+        SELECT * FROM shop_subcategories
+        ORDER BY position,name
+      `).all(),
 
-    env.DB.prepare(`
-      SELECT * FROM shop_sections
-    `).all(),
+      env.DB.prepare(`
+        SELECT * FROM shop_sections
+      `).all(),
 
-    env.DB.prepare(`
-      SELECT value FROM shop_settings
-      WHERE key='logo'
-    `).first()
-  ]);
+      env.DB.prepare(`
+        SELECT key,value FROM shop_settings
+      `).all()
+    ]);
+
+  const options = Object.fromEntries(
+    (settings.results || [])
+      .map(x => [x.key, x.value])
+  );
 
   return {
-    products: productos.results || [],
-    categories: categorias.results || [],
-    subcategories: subcategorias.results || [],
-    sections: secciones.results || [],
-    logo: logo?.value || LOGO_ORIGINAL
+    products: p.results || [],
+    categories: c.results || [],
+    subcategories: s.results || [],
+    sections: sections.results || [],
+    logo: options.logo || CONFIG.logo,
+    design: options.design || ""
   };
 }
 
-function pagina(contenido) {
+/* DISEÑO GENERAL */
+
+function page(body) {
   return new Response(`<!doctype html>
 <html lang="es">
 <head>
@@ -327,301 +355,319 @@ function pagina(contenido) {
 <title>Brusaam | La excelencia en tu hogar</title>
 <style>
 :root{
- --morado:#6524AD;
- --azul:#078ED5;
+ --purple:#6524AD;
+ --blue:#078ED5;
  --navy:#14234B;
- --fondo:#F4F7FC;
- --borde:#E1E5EE;
+ --bg:#F4F7FC;
+ --border:#DFE5EF;
 }
 *{box-sizing:border-box}
 body{
  margin:0;
  font-family:Arial,Helvetica,sans-serif;
- background:var(--fondo);
+ background:var(--bg);
  color:var(--navy);
 }
 header{
- background:#fff;
+ background:white;
  text-align:center;
- padding:20px 12px 17px;
- box-shadow:0 2px 12px #14234B12;
+ padding:12px 12px 20px;
+}
+#topDesign,#bottomDesign{
+ height:90px;
+ background-position:center;
+ background-size:cover;
+ background-repeat:no-repeat;
+}
+#topDesign:empty,#bottomDesign:empty{
+ display:none;
 }
 .logo{
- width:155px;
- max-width:65%;
+ display:block;
+ margin:12px auto 5px;
+ max-width:190px;
+ width:55%;
  height:auto;
  object-fit:contain;
- background:transparent;
 }
-.marca{
- font-size:13px;
- color:#64748b;
- margin:5px 0 0;
+.slogan{font-size:13px;color:#64748b}
+.banner{
+ max-width:650px;
+ margin:17px auto 0;
+ padding:16px;
+ border-radius:14px;
+ background:linear-gradient(110deg,#F0E7FC,#E4F3FC);
+}
+.banner strong{
+ display:block;
+ font-size:23px;
+ color:var(--purple);
+ margin:6px 0;
 }
 main{
- max-width:1160px;
+ max-width:1150px;
  margin:auto;
- padding:16px;
+ padding:14px;
 }
 h1,h2,h3{color:var(--navy)}
-h1{font-size:26px}
-h2{font-size:22px}
-h3{font-size:17px}
+h2{font-size:21px}
+section,.panel{
+ background:white;
+ padding:17px;
+ margin:15px 0;
+ border-radius:14px;
+ box-shadow:0 2px 10px #14234B0d;
+}
 button{
  border:0;
- background:var(--morado);
- color:#fff;
- padding:11px 14px;
  border-radius:9px;
+ padding:10px 13px;
+ background:var(--purple);
+ color:white;
  font-weight:700;
  cursor:pointer;
 }
 button:disabled{opacity:.45;cursor:not-allowed}
-button.secundario{background:#eae2f6;color:var(--morado)}
-button.peligro{background:#a33d4b}
-button.pequeno{padding:7px 10px}
+button.secondary{
+ background:#ECE4F7;
+ color:var(--purple);
+}
+button.danger{background:#AE3854}
+button.small{padding:6px 10px}
 input,select,textarea{
  width:100%;
  padding:11px;
- border:1px solid #cbd4e2;
+ border:1px solid #CBD4E2;
  border-radius:9px;
- background:white;
- font:inherit;
  margin:6px 0 12px;
-}
-input[type=checkbox]{width:auto}
-label{display:block;font-weight:600}
-a{color:var(--morado);text-decoration:none}
-.tarjeta,section{
+ font:inherit;
  background:white;
- border-radius:14px;
- padding:17px;
- margin:14px 0;
- box-shadow:0 2px 9px #14234B0d;
 }
-.oculto{display:none!important}
-.muted{color:#66758a;font-size:13px}
+input[type=checkbox],input[type=radio]{
+ width:auto;
+ margin:4px 7px 4px 0;
+}
+label{display:block;font-weight:600}
+a{color:var(--purple)}
+.muted{font-size:13px;color:#64748b}
+.hidden{display:none!important}
 .flex{
  display:flex;
  align-items:center;
- gap:9px;
+ gap:10px;
  flex-wrap:wrap;
 }
 .grow{flex:1}
-.grid{
- display:grid;
- grid-template-columns:repeat(auto-fill,minmax(195px,1fr));
- gap:13px;
-}
-.producto{
- background:white;
- border:1px solid var(--borde);
- border-radius:13px;
- padding:12px;
- display:flex;
- flex-direction:column;
- gap:7px;
- min-width:0;
-}
-.producto img{
- width:100%;
- height:185px;
- object-fit:contain;
-}
-.producto h3{
- margin:3px 0;
- font-size:15px;
- min-height:34px;
-}
-.precio{
- font-size:21px;
- font-weight:800;
- color:var(--azul);
-}
-.producto button{margin-top:auto}
-.buscador{position:relative}
-.buscador input{
- padding-left:42px;
- font-size:16px;
-}
-.lupa{
- position:absolute;
- top:16px;
- left:13px;
- color:var(--morado);
- font-size:22px;
-}
-.banner{
- max-width:700px;
- margin:15px auto 0;
- padding:16px;
- background:linear-gradient(115deg,#F3ECFC,#EAF4FF);
- border:1px solid #DED2F2;
- border-radius:14px;
-}
-.banner strong{
- display:block;
- color:var(--morado);
- font-size:23px;
- margin:6px 0;
-}
-.banner small{
- color:#4c3670;
- font-weight:600;
-}
-.bloques{
+.tiles{
  display:grid;
  grid-template-columns:repeat(4,minmax(0,1fr));
  gap:12px;
 }
-.bloque{
- border:1px solid var(--borde);
- border-radius:14px;
- background:#fff;
+.tile{
+ border:1px solid var(--border);
+ background:white;
+ border-radius:13px;
  overflow:hidden;
- cursor:pointer;
+ color:var(--navy);
  text-align:left;
  padding:0;
- color:var(--navy);
 }
-.bloque img{
- width:100%;
- height:145px;
- object-fit:cover;
- background:#F0EAF8;
-}
-.bloque .nombre{
+.tile img{
  display:block;
- padding:12px;
- font-weight:700;
+ width:100%;
+ height:140px;
+ object-fit:cover;
 }
-.bloque .sin-foto{
- height:145px;
- background:linear-gradient(130deg,#EFE6FA,#E4F3FC);
+.tile .placeholder{
  display:grid;
  place-items:center;
- font-size:36px;
+ height:140px;
+ background:linear-gradient(130deg,#EFE7FC,#E6F4FC);
+ font-size:38px;
 }
-.ruta{
+.tile strong{
+ display:block;
+ padding:12px;
+}
+.grid{
+ display:grid;
+ grid-template-columns:repeat(auto-fill,minmax(190px,1fr));
+ gap:12px;
+}
+.product{
+ border:1px solid var(--border);
+ border-radius:12px;
+ background:white;
+ padding:12px;
  display:flex;
- flex-wrap:wrap;
+ flex-direction:column;
  gap:8px;
- align-items:center;
- margin:10px 0 16px;
 }
-.ruta button{
- background:transparent;
- color:var(--morado);
- padding:5px;
+.product img{
+ width:100%;
+ height:175px;
+ object-fit:contain;
 }
-.filtros{
+.product h3{font-size:15px;margin:2px 0}
+.price{
+ font-size:20px;
+ color:var(--blue);
+ font-weight:800;
+}
+.search{position:relative}
+.search input{
+ padding-left:40px;
+ font-size:16px;
+}
+.search span{
+ position:absolute;
+ left:13px;
+ top:15px;
+ font-size:22px;
+ color:var(--purple);
+}
+.filters{
  display:grid;
  grid-template-columns:1fr 1fr;
  gap:12px;
 }
-.fila-carrito{
+.cartrow{
  display:flex;
- align-items:center;
  gap:12px;
- border-bottom:1px solid var(--borde);
  padding:13px 0;
-}
-.fila-carrito img{
- width:82px;
- height:82px;
- object-fit:contain;
- border-radius:8px;
-}
-.info-carrito{flex:1;min-width:0}
-.info-carrito strong{display:block}
-.controles{
- display:flex;
+ border-bottom:1px solid var(--border);
  align-items:center;
- gap:8px;
- margin-top:9px;
- flex-wrap:wrap;
 }
-.resumen{
+.cartrow img{
+ width:75px;
+ height:75px;
+ object-fit:contain;
+}
+.cartinfo{flex:1;min-width:0}
+.summary{
  display:flex;
  justify-content:space-between;
  gap:12px;
- padding:11px 0;
+ padding:10px 0;
 }
-.total{
- border-top:1px solid var(--borde);
+.summary.total{
+ border-top:1px solid var(--border);
  font-size:20px;
- font-weight:800;
+ font-weight:bold;
 }
-table{
- width:100%;
- border-collapse:collapse;
- font-size:14px;
-}
+table{width:100%;border-collapse:collapse}
 th,td{
- padding:11px;
- border-bottom:1px solid var(--borde);
+ padding:10px;
+ border-bottom:1px solid var(--border);
  text-align:left;
 }
-th{background:#F2ECFA}
-.tabla{overflow-x:auto}
-.aviso{
- background:#F3EDFB;
+th{background:#F1EBFA}
+.scroll{overflow-x:auto}
+.notice{
+ background:#F0E9FB;
  border-radius:9px;
  padding:12px;
- font-size:13px;
 }
-.admin-row{
+.adminTabs{
+ display:flex;
+ flex-wrap:wrap;
+ gap:7px;
+ margin:15px 0;
+}
+.adminTabs button{
+ background:#EDE5F7;
+ color:var(--purple);
+}
+.adminTabs button.active{
+ background:var(--purple);
+ color:white;
+}
+.adminRow{
+ border-bottom:1px solid var(--border);
  padding:12px 0;
- border-bottom:1px solid var(--borde);
 }
-.admin-row img{
+.adminRow img{
  width:65px;
  height:65px;
  object-fit:contain;
 }
-.admin-tabs{
+footer{
+ background:white;
+ margin-top:25px;
+ text-align:center;
+}
+.footerContent{padding:22px}
+.social{
  display:flex;
+ justify-content:center;
+ gap:10px;
  flex-wrap:wrap;
- gap:8px;
- margin:14px 0;
 }
-.admin-tabs button{
- background:#EAE2F6;
- color:var(--morado);
-}
-.admin-tabs button.activo{
- background:var(--morado);
- color:white;
+.social a{
+ text-decoration:none;
+ background:#F0E9FB;
+ border-radius:10px;
+ padding:12px;
+ font-weight:bold;
 }
 @media(max-width:700px){
- .bloques{grid-template-columns:repeat(2,minmax(0,1fr))}
- .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
- .producto{padding:10px}
- .producto img{height:135px}
- .producto h3{font-size:14px}
- .precio{font-size:18px}
- .filtros{grid-template-columns:1fr}
- .bloque img,.bloque .sin-foto{height:115px}
  main{padding:10px}
- .fila-carrito img{width:65px;height:65px}
+ .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .tile img,.tile .placeholder{height:115px}
+ .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+ .product{padding:9px}
+ .product img{height:125px}
+ .product h3{font-size:14px}
+ .price{font-size:18px}
+ .filters{grid-template-columns:1fr}
+ #topDesign,#bottomDesign{height:65px}
 }
 </style>
 </head>
 <body>
+<div id="topDesign"></div>
 <header>
-<img id="logoTienda" class="logo"
- src="${LOGO_ORIGINAL}" alt="Brusaam">
-<div class="marca">La excelencia en tu hogar</div>
+<img class="logo" id="shopLogo"
+ src="${CONFIG.logo}" alt="Brusaam">
+<div class="slogan">La excelencia en tu hogar</div>
 <div class="banner">
- <small>🚚 BENEFICIO ESPECIAL</small>
+ <div>🚚 BENEFICIO ESPECIAL</div>
  <strong>¡Despacho GRATIS!</strong>
  <div>Coquimbo y La Serena</div>
  <div style="margin-top:6px;color:#6524AD">
-  En compras sobre $30.000
+  En compras desde $30.000
  </div>
 </div>
 </header>
-<main>${contenido}</main>
+<main>${body}</main>
+<footer>
+<div id="bottomDesign"></div>
+<div class="footerContent">
+<h3>Brusaam</h3>
+<p>¡Síguenos y contáctanos!</p>
+<div class="social">
+<a href="https://wa.me/56966282007"
+ target="_blank" rel="noopener noreferrer">
+ 💬 WhatsApp
+</a>
+<a href="${CONFIG.instagram}"
+ target="_blank" rel="noopener noreferrer">
+ 📸 Instagram
+</a>
+<a href="${CONFIG.tiktok}"
+ target="_blank" rel="noopener noreferrer">
+ 🎵 TikTok
+</a>
+</div>
+<p class="muted">
+ WhatsApp +56 9 6628 2007
+</p>
+<p class="muted">
+ Instagram @comercializadora_brusaam
+ · TikTok @com_brusaam
+</p>
+</div>
+</footer>
 </body>
 </html>`, {
     headers: {
@@ -643,115 +689,112 @@ th{background:#F2ECFA}
   });
 }
 
-/* =========================================
-   TIENDA PUBLICA
-========================================= */
+/* TIENDA */
 
-const tienda = String.raw`
+const SHOP_HTML = String.raw`
 <h2>Bienvenido a Brusaam</h2>
 
-<div class="buscador">
- <span class="lupa">⌕</span>
- <input id="buscar"
+<div class="search">
+ <span>⌕</span>
+ <input id="search"
   placeholder="Buscar productos, marcas o categorías...">
 </div>
 
-<div id="inicio">
- <h2>Explora nuestras categorías</h2>
- <div id="categoriasInicio" class="bloques"></div>
+<div id="home">
+ <h2>Nuestras categorías</h2>
+ <div id="categoryTiles" class="tiles"></div>
 
- <h2 style="margin-top:28px">Nuestras secciones</h2>
- <div id="seccionesInicio" class="bloques"></div>
+ <h2>Secciones especiales</h2>
+ <div id="sectionTiles" class="tiles"></div>
 
- <div id="vitrinas"></div>
+ <div id="featuredAreas"></div>
 </div>
 
-<div id="explorador" class="oculto">
- <div id="ruta" class="ruta"></div>
- <h2 id="tituloExplorador">Productos</h2>
- <div id="subcategoriasVista" class="bloques"></div>
-</div>
+<section id="catalogSection">
+ <div class="flex">
+  <h2 class="grow" id="catalogTitle">Todos los productos</h2>
+  <button class="secondary" id="backHome">
+   Inicio
+  </button>
+ </div>
 
-<section id="zonaCatalogo">
- <h2 id="tituloCatalogo">Todos los productos</h2>
- <div class="filtros">
+ <div id="subTiles" class="tiles"
+  style="margin-bottom:15px"></div>
+
+ <div class="filters">
   <label>Categoría
-   <select id="fCategoria">
-    <option value="">Todas las categorías</option>
-   </select>
+   <select id="filterCategory"></select>
   </label>
   <label>Subcategoría
-   <select id="fSubcategoria">
-    <option value="">Todas las subcategorías</option>
-   </select>
+   <select id="filterSub"></select>
   </label>
  </div>
- <p id="cantidadResultados" class="muted"></p>
- <div id="catalogo" class="grid"></div>
+
+ <p class="muted" id="count"></p>
+ <div id="products" class="grid"></div>
 </section>
 
-<section id="carrito">
- <h2>🛒 Resumen de mi compra</h2>
- <div id="itemsCarrito"></div>
+<section>
+ <h2>🛒 Mi carrito</h2>
+ <div id="cartItems"></div>
 
- <div class="resumen">
+ <div class="summary">
   <span>Subtotal productos</span>
   <strong id="subtotal">$0</strong>
  </div>
- <div class="resumen">
+
+ <div class="summary">
   <span>Despacho</span>
-  <strong id="despacho">Despacho por calcular</strong>
+  <strong id="shipping">Despacho por calcular</strong>
  </div>
- <div class="resumen total">
-  <span id="textoTotal">Total productos</span>
+
+ <div class="summary total">
+  <span id="totalLabel">Total productos</span>
   <span id="total">$0</span>
  </div>
 </section>
 
 <section>
  <h3>Condiciones y tarifas de despacho</h3>
- <div class="tabla">
-  <table>
-   <thead>
-    <tr><th>Zona</th><th>Tarifa</th></tr>
-   </thead>
-   <tbody>
-    <tr><td>La Serena</td><td>$3.000</td></tr>
-    <tr><td>Coquimbo</td><td>$2.000</td></tr>
-    <tr>
-     <td>La Serena y Coquimbo – Compras Sobre $30.000</td>
-     <td><strong>Gratis</strong></td>
-    </tr>
-    <tr>
-     <td>Otras Regiones / Comuna</td>
-     <td>Envío por pagar</td>
-    </tr>
-   </tbody>
-  </table>
+ <div class="scroll">
+ <table>
+ <thead>
+ <tr><th>Modalidad o zona</th><th>Tarifa</th></tr>
+ </thead>
+ <tbody>
+ <tr><td>Retiro</td><td><strong>Gratis</strong></td></tr>
+ <tr><td>La Serena</td><td>$2.000</td></tr>
+ <tr><td>Coquimbo</td><td>$1.500</td></tr>
+ <tr>
+  <td>La Serena y Coquimbo, compras desde $30.000</td>
+  <td><strong>Gratis</strong></td>
+ </tr>
+ <tr>
+  <td>Otras regiones y comunas</td>
+  <td>Envío por pagar</td>
+ </tr>
+ </tbody>
+ </table>
  </div>
- <p class="muted">
-  Despacho gratis desde $30.000 de subtotal de productos,
-  inclusive, en La Serena y Coquimbo.
- </p>
 </section>
 
 <section>
  <h2>Datos del solicitante</h2>
 
  <label>Nombre y apellido *
-  <input id="cliente" maxlength="120">
+  <input id="customer" maxlength="120">
  </label>
 
- <label>Modalidad *
-  <select id="modalidad">
-   <option value="entrega">Entrega a domicilio</option>
-   <option value="retiro">Retiro</option>
+ <label>Modalidad (Retiro o Entrega a Domicilio) *
+  <select id="mode">
+   <option value="delivery">Entrega a Domicilio</option>
+   <option value="pickup">Retiro</option>
   </select>
  </label>
 
- <div id="camposEntrega">
+ <div id="deliveryFields">
   <label>Dirección *
-   <input id="direccion" maxlength="220"
+   <input id="address" maxlength="220"
     placeholder="Calle, número y referencia">
   </label>
 
@@ -778,939 +821,1081 @@ const tienda = String.raw`
   </label>
 
   <label>Comuna *
-   <input id="comuna" maxlength="100">
+   <input id="commune" maxlength="100">
   </label>
  </div>
 
- <p id="avisoEnvio" class="aviso">
+ <p id="shippingNotice" class="notice">
   Despacho por calcular.
  </p>
 
- <button id="enviar" style="width:100%">
+ <button id="checkout" style="width:100%">
   Enviar pedido por WhatsApp
  </button>
 
  <p class="muted">
-  Brusaam confirmará disponibilidad, pago y entrega.
+  Los pedidos quedan sujetos a confirmación de
+  disponibilidad, pago y entrega por Brusaam.
  </p>
 </section>
 
 <script>
-const $ = id => document.getElementById(id);
-const dinero = n => '$' + Number(n).toLocaleString('es-CL');
+const $=id=>document.getElementById(id);
+const money=n=>'$'+Math.round(Number(n))
+ .toLocaleString('es-CL');
 
-let productos = [];
-let categorias = [];
-let subcategorias = [];
-let secciones = [];
-let carrito = {};
-let vista = {tipo:'todos',valor:'',sub:''};
-
-const iconos = {
- 'Limpieza del hogar':'🧴',
- 'Cuidado personal':'🧼',
- 'Papelería':'🧻',
- 'Otros productos':'📦',
- 'destacados':'⭐',
- 'pack_ahorro':'📦',
- 'ofertas':'🏷️',
- 'box_pyme':'🏪'
+let data={
+ products:[],categories:[],
+ subcategories:[],sections:[]
 };
 
-function elemento(tag,texto) {
- const e=document.createElement(tag);
- if(texto!==undefined) e.textContent=texto;
- return e;
-}
+let cart={};
+let activeSection='';
 
-function normalizar(s) {
+function norm(s) {
  return String(s||'')
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g,'')
-  .trim().toLowerCase()
-  .replace(/\s+/g,' ');
+  .toLowerCase().trim().replace(/\s+/g,' ');
 }
 
-function foto(url,alt) {
- const img=elemento('img');
- img.src=url;
- img.alt=alt;
- img.loading='lazy';
- return img;
+function el(tag,text) {
+ const e=document.createElement(tag);
+ if(text!==undefined)e.textContent=text;
+ return e;
 }
 
-function tarjetaAcceso(nombre,imagen,icono,accion) {
- const boton=elemento('button');
- boton.className='bloque';
+function img(url,alt) {
+ const e=el('img');
+ e.src=url;
+ e.alt=alt;
+ e.loading='lazy';
+ return e;
+}
 
- if(imagen && imagen.startsWith('https://')) {
-  boton.append(foto(imagen,nombre));
+function decorate(d) {
+ if(d.logo) $('shopLogo').src=d.logo;
+
+ for(const id of ['topDesign','bottomDesign']) {
+  if(d.design) {
+   $(id).style.backgroundImage=
+    'url('+JSON.stringify(d.design)+')';
+   $(id).textContent=' ';
+  } else {
+   $(id).style.backgroundImage='';
+   $(id).textContent='';
+  }
+ }
+}
+
+function tile(name,image,icon,click) {
+ const b=el('button');
+ b.className='tile';
+
+ if(image) {
+  b.append(img(image,name));
  } else {
-  const sin=elemento('div',icono||'📦');
-  sin.className='sin-foto';
-  boton.append(sin);
+  const box=el('div',icon||'📦');
+  box.className='placeholder';
+  b.append(box);
  }
 
- const texto=elemento('span',nombre);
- texto.className='nombre';
- boton.append(texto);
- boton.onclick=accion;
-
- return boton;
+ b.append(el('strong',name));
+ b.onclick=click;
+ return b;
 }
 
-function productosSeccion(slug) {
- return productos.filter(p=>Number(p[slug])===1);
+function isPaper(p) {
+ return norm(p.category)==='papeleria' &&
+  norm(p.subcategory)==='papel higienico';
 }
 
-function precioUnitario(p,cantidad) {
- const minimo=Number(p.min_qty)||2;
- return cantidad>=minimo
+function hasManga(p) {
+ return isPaper(p) &&
+  Number(p.manga_price)>0 &&
+  Number(p.packs_per_manga)>0;
+}
+
+function unitPrice(p,kind,qty) {
+ if(kind==='manga') return Number(p.manga_price);
+
+ return qty>=(Number(p.min_qty)||2)
   ? Number(p.wholesale)
   : Number(p.retail);
 }
 
-function agregar(id,cantidad) {
- const p=productos.find(x=>String(x.id)===String(id));
- if(!p) return;
+function usedStock(id) {
+ let total=0;
 
- const actual=carrito[id]||0;
- const n=Number(cantidad);
+ for(const [key,qty] of Object.entries(cart)) {
+  const [productId,kind]=key.split(':');
+  if(String(productId)!==String(id)) continue;
 
- if(!Number.isInteger(n)||n<1||
-    actual+n>Number(p.stock)) {
-  alert('Cantidad inválida o stock insuficiente.');
+  const p=data.products.find(
+   x=>String(x.id)===String(id)
+  );
+
+  if(!p) continue;
+
+  total+=qty*(kind==='manga'
+   ?Number(p.packs_per_manga):1);
+ }
+
+ return total;
+}
+
+function add(id,kind,qty) {
+ const p=data.products.find(
+  x=>String(x.id)===String(id)
+ );
+
+ qty=Number(qty);
+
+ if(!p||!Number.isInteger(qty)||qty<1) {
+  alert('Cantidad inválida.');
   return;
  }
 
- carrito[id]=actual+n;
- renderCarrito();
-}
-
-function tarjetaProducto(p) {
- const card=elemento('div');
- card.className='producto';
-
- if(p.image && p.image.startsWith('https://')) {
-  card.append(foto(p.image,p.name));
- } else {
-  const vacio=elemento('div','📦');
-  vacio.style.cssText=
-   'height:185px;display:grid;place-items:center;background:#F4F7FC';
-  card.append(vacio);
+ if(kind==='manga'&&!hasManga(p)) {
+  alert('Manga no disponible.');
+  return;
  }
 
- card.append(elemento('h3',p.name));
+ const stockNeeded=qty*(kind==='manga'
+  ?Number(p.packs_per_manga):1);
+
+ if(usedStock(id)+stockNeeded>Number(p.stock)) {
+  alert('Stock insuficiente.');
+  return;
+ }
+
+ const key=id+':'+kind;
+ cart[key]=(cart[key]||0)+qty;
+ renderCart();
+}
+
+function productCard(p) {
+ const card=el('div');
+ card.className='product';
+
+ if(p.image) {
+  card.append(img(p.image,p.name));
+ } else {
+  const placeholder=el('div','📦');
+  placeholder.style.cssText=
+   'height:175px;display:grid;place-items:center';
+  card.append(placeholder);
+ }
+
+ card.append(el('h3',p.name));
 
  if(p.subcategory) {
-  const sub=elemento('div',p.subcategory);
+  const sub=el('div',p.subcategory);
   sub.className='muted';
   card.append(sub);
  }
 
- const detalle=elemento('div',
-  'Detalle: '+dinero(p.retail));
- detalle.className='precio';
- card.append(detalle);
+ const paper=isPaper(p);
 
- const mayor=elemento('div',
-  'Mayor desde '+(p.min_qty||2)+
-  ': '+dinero(p.wholesale));
- mayor.className='muted';
- card.append(mayor);
+ if(paper) {
+  const title=el('strong','Presentación');
+  card.append(title);
 
- const stock=elemento('div','Stock: '+p.stock);
+  const kind=el('select');
+  kind.add(new Option('Por paquete','pack'));
+
+  if(hasManga(p)) {
+   kind.add(new Option('Por manga','manga'));
+  }
+
+  const price=el('div');
+  price.className='price';
+
+  const details=el('div');
+  details.className='muted';
+
+  const update=()=>{
+   if(kind.value==='manga') {
+    price.textContent=money(p.manga_price)+' por manga';
+    details.textContent=
+     Number(p.packs_per_manga)+
+     ' paquetes por manga · precio único';
+   } else {
+    price.textContent=
+     money(p.retail)+' por paquete';
+
+    details.textContent=
+     'Desde '+(p.min_qty||2)+
+     ' paquetes: '+money(p.wholesale)+' c/u';
+   }
+  };
+
+  kind.onchange=update;
+  card.append(kind,price,details);
+  update();
+
+  const quantity=el('input');
+  quantity.type='number';
+  quantity.min='1';
+  quantity.value='1';
+
+  const btn=el('button','Agregar al carrito');
+  btn.disabled=Number(p.stock)<1;
+  btn.onclick=()=>add(p.id,kind.value,quantity.value);
+
+  card.append(quantity,btn);
+ } else {
+  const price=el('div',money(p.retail));
+  price.className='price';
+  card.append(price);
+
+  const wholesale=el(
+   'div',
+   'Mayor desde '+(p.min_qty||2)+
+   ': '+money(p.wholesale)+' c/u'
+  );
+  wholesale.className='muted';
+  card.append(wholesale);
+
+  const quantity=el('input');
+  quantity.type='number';
+  quantity.min='1';
+  quantity.value='1';
+
+  const btn=el('button','Agregar al carrito');
+  btn.disabled=Number(p.stock)<1;
+  btn.onclick=()=>add(p.id,'pack',quantity.value);
+
+  card.append(quantity,btn);
+ }
+
+ const stock=el('div',
+  'Stock disponible: '+p.stock+
+  (paper?' paquetes':' unidades'));
  stock.className='muted';
  card.append(stock);
-
- const cantidad=elemento('input');
- cantidad.type='number';
- cantidad.min='1';
- cantidad.max=String(p.stock);
- cantidad.value='1';
- cantidad.style.maxWidth='75px';
-
- const fila=elemento('div');
- fila.className='flex';
-
- const boton=elemento('button','Agregar');
- boton.disabled=Number(p.stock)<1;
- boton.onclick=()=>agregar(p.id,cantidad.value);
-
- fila.append(cantidad,boton);
- card.append(fila);
 
  return card;
 }
 
-function mostrarInicio() {
- vista={tipo:'todos',valor:'',sub:''};
+function renderHome() {
+ const categories=$('categoryTiles');
+ categories.replaceChildren();
 
- $('inicio').classList.remove('oculto');
- $('explorador').classList.add('oculto');
-
- $('fCategoria').value='';
- actualizarFiltroSubs();
- $('fSubcategoria').value='';
-
- $('tituloCatalogo').textContent='Todos los productos';
- renderCatalogo();
-}
-
-function mostrarCategoria(nombre,sub='') {
- vista={tipo:'categoria',valor:nombre,sub};
-
- $('inicio').classList.add('oculto');
- $('explorador').classList.remove('oculto');
-
- $('fCategoria').value=nombre;
- actualizarFiltroSubs();
- $('fSubcategoria').value=sub;
-
- $('tituloExplorador').textContent=sub||nombre;
- $('tituloCatalogo').textContent=sub||nombre;
-
- renderRuta();
- renderSubcategorias(nombre);
- renderCatalogo();
-
- $('explorador').scrollIntoView({behavior:'smooth'});
-}
-
-function mostrarSeccion(slug) {
- vista={tipo:'seccion',valor:slug,sub:''};
-
- const sec=secciones.find(s=>s.slug===slug);
-
- $('inicio').classList.add('oculto');
- $('explorador').classList.remove('oculto');
-
- $('tituloExplorador').textContent=
-  sec?.title||'Productos';
-
- $('tituloCatalogo').textContent=
-  sec?.title||'Productos';
-
- $('subcategoriasVista').replaceChildren();
-
- $('fCategoria').value='';
- actualizarFiltroSubs();
- $('fSubcategoria').value='';
-
- renderRuta();
- renderCatalogo();
-
- $('explorador').scrollIntoView({behavior:'smooth'});
-}
-
-function renderRuta() {
- const root=$('ruta');
- root.replaceChildren();
-
- const inicio=elemento('button','Inicio');
- inicio.onclick=()=>{
-  $('buscar').value='';
-  mostrarInicio();
+ const icons={
+  'Limpieza del hogar':'🧴',
+  'Cuidado personal':'🧼',
+  'Papelería':'🧻',
+  'Otros productos':'📦'
  };
- root.append(inicio);
 
- if(vista.tipo==='categoria') {
-  root.append(elemento('span','›'));
-
-  const cat=elemento('button',vista.valor);
-  cat.onclick=()=>mostrarCategoria(vista.valor);
-  root.append(cat);
-
-  if(vista.sub) {
-   root.append(elemento('span','›'));
-   root.append(elemento('strong',vista.sub));
-  }
- }
-
- if(vista.tipo==='seccion') {
-  root.append(elemento('span','›'));
-  const sec=secciones.find(s=>s.slug===vista.valor);
-  root.append(elemento('strong',sec?.title||'Sección'));
- }
-}
-
-function renderSubcategorias(categoria) {
- const root=$('subcategoriasVista');
- root.replaceChildren();
-
- const c=categorias.find(x=>x.name===categoria);
- if(!c) return;
-
- const subs=subcategorias.filter(
-  x=>Number(x.category_id)===Number(c.id)
- );
-
- for(const sub of subs) {
-  root.append(tarjetaAcceso(
-   sub.name,sub.image,'📁',
-   ()=>mostrarCategoria(categoria,sub.name)
-  ));
- }
-}
-
-function renderInicio() {
- const root=$('categoriasInicio');
- root.replaceChildren();
-
- for(const c of categorias) {
-  root.append(tarjetaAcceso(
-   c.name,c.image,iconos[c.name]||'📁',
-   ()=>mostrarCategoria(c.name)
+ for(const c of data.categories) {
+  categories.append(tile(
+   c.name,c.image,icons[c.name]||'📁',
+   ()=>openCategory(c.name)
   ));
  }
 
- const especiales=$('seccionesInicio');
- especiales.replaceChildren();
+ const sections=$('sectionTiles');
+ sections.replaceChildren();
 
- for(const s of secciones) {
-  especiales.append(tarjetaAcceso(
-   s.title,s.image,iconos[s.slug]||'⭐',
-   ()=>mostrarSeccion(s.slug)
+ const iconsSections={
+  destacados:'⭐',
+  pack_ahorro:'📦',
+  ofertas:'🏷️',
+  box_pyme:'🏪'
+ };
+
+ for(const s of data.sections) {
+  sections.append(tile(
+   s.title,s.image,iconsSections[s.slug],
+   ()=>openSection(s.slug)
   ));
  }
 
- const vitrinas=$('vitrinas');
- vitrinas.replaceChildren();
+ const area=$('featuredAreas');
+ area.replaceChildren();
 
- for(const s of secciones) {
-  const lista=productosSeccion(s.slug).slice(0,4);
-  if(!lista.length) continue;
+ for(const s of data.sections) {
+  const list=data.products.filter(
+   p=>Number(p[s.slug])===1
+  ).slice(0,4);
 
-  const bloque=elemento('section');
-  const cabecera=elemento('div');
-  cabecera.className='flex';
+  if(!list.length)continue;
 
-  const titulo=elemento('h2',s.title);
-  titulo.className='grow';
+  const section=el('section');
+  const heading=el('div');
+  heading.className='flex';
 
-  const ver=elemento('button','Ver todos');
-  ver.className='secundario';
-  ver.onclick=()=>mostrarSeccion(s.slug);
+  const title=el('h2',s.title);
+  title.className='grow';
 
-  cabecera.append(titulo,ver);
-  bloque.append(cabecera);
+  const more=el('button','Ver todos');
+  more.className='secondary';
+  more.onclick=()=>openSection(s.slug);
 
-  const grid=elemento('div');
+  heading.append(title,more);
+  section.append(heading);
+
+  const grid=el('div');
   grid.className='grid';
 
-  lista.forEach(p=>grid.append(tarjetaProducto(p)));
-  bloque.append(grid);
-  vitrinas.append(bloque);
+  list.forEach(p=>grid.append(productCard(p)));
+  section.append(grid);
+  area.append(section);
  }
 }
 
-function actualizarFiltros() {
- const select=$('fCategoria');
- const actual=select.value;
+function fillFilters() {
+ const category=$('filterCategory');
+ const selected=category.value;
 
- select.replaceChildren(
+ category.replaceChildren(
   new Option('Todas las categorías','')
  );
 
- for(const c of categorias) {
-  select.add(new Option(c.name,c.name));
- }
+ data.categories.forEach(c=>
+  category.add(new Option(c.name,c.name))
+ );
 
- if(categorias.some(c=>c.name===actual)) {
-  select.value=actual;
- }
+ if([...category.options].some(
+  x=>x.value===selected
+ ))category.value=selected;
 
- actualizarFiltroSubs();
+ fillSubs();
 }
 
-function actualizarFiltroSubs() {
- const cat=$('fCategoria').value;
- const select=$('fSubcategoria');
- const actual=select.value;
+function fillSubs(selected='') {
+ const category=$('filterCategory').value;
+ const c=data.categories.find(x=>x.name===category);
 
- select.replaceChildren(
+ const sub=$('filterSub');
+ sub.replaceChildren(
   new Option('Todas las subcategorías','')
  );
 
- const c=categorias.find(x=>x.name===cat);
-
  if(c) {
-  const subs=subcategorias.filter(
-   s=>Number(s.category_id)===Number(c.id)
-  );
-
-  for(const sub of subs) {
-   select.add(new Option(sub.name,sub.name));
-  }
+  data.subcategories
+   .filter(x=>Number(x.category_id)===Number(c.id))
+   .forEach(x=>sub.add(new Option(x.name,x.name)));
  }
 
- if([...select.options].some(x=>x.value===actual)) {
-  select.value=actual;
+ if([...sub.options].some(
+  x=>x.value===selected
+ ))sub.value=selected;
+}
+
+function showSubcategories(categoryName) {
+ const root=$('subTiles');
+ root.replaceChildren();
+
+ const c=data.categories.find(
+  x=>x.name===categoryName
+ );
+
+ if(!c)return;
+
+ for(const sub of data.subcategories.filter(
+  x=>Number(x.category_id)===Number(c.id)
+ )) {
+  root.append(tile(
+   sub.name,sub.image,'📁',
+   ()=>openCategory(categoryName,sub.name)
+  ));
  }
 }
 
-function renderCatalogo() {
- const buscar=normalizar($('buscar').value);
- const categoria=$('fCategoria').value;
- const sub=$('fSubcategoria').value;
+function openCategory(name,sub='') {
+ activeSection='';
+ $('search').value='';
+ $('home').classList.add('hidden');
 
- const lista=productos.filter(p=>{
-  if(vista.tipo==='seccion' &&
-     Number(p[vista.valor])!==1) return false;
+ $('filterCategory').value=name;
+ fillSubs(sub);
 
-  if(categoria && p.category!==categoria) return false;
-  if(sub && p.subcategory!==sub) return false;
+ $('catalogTitle').textContent=sub||name;
+ showSubcategories(name);
+ renderProducts();
 
-  const texto=normalizar([
+ $('catalogSection').scrollIntoView({
+  behavior:'smooth'
+ });
+}
+
+function openSection(slug) {
+ activeSection=slug;
+ $('search').value='';
+ $('home').classList.add('hidden');
+
+ $('filterCategory').value='';
+ fillSubs();
+
+ $('subTiles').replaceChildren();
+
+ const s=data.sections.find(x=>x.slug===slug);
+ $('catalogTitle').textContent=s?.title||'Productos';
+
+ renderProducts();
+
+ $('catalogSection').scrollIntoView({
+  behavior:'smooth'
+ });
+}
+
+function showHome() {
+ activeSection='';
+ $('search').value='';
+ $('filterCategory').value='';
+ fillSubs();
+
+ $('catalogTitle').textContent='Todos los productos';
+ $('subTiles').replaceChildren();
+
+ $('home').classList.remove('hidden');
+ renderProducts();
+
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function renderProducts() {
+ const q=norm($('search').value);
+ const cat=$('filterCategory').value;
+ const sub=$('filterSub').value;
+
+ const list=data.products.filter(p=>{
+  if(activeSection&&Number(p[activeSection])!==1) {
+   return false;
+  }
+
+  if(cat&&p.category!==cat)return false;
+  if(sub&&p.subcategory!==sub)return false;
+
+  return norm([
    p.name,p.category,p.subcategory,p.description
-  ].join(' '));
-
-  return texto.includes(buscar);
+  ].join(' ')).includes(q);
  });
 
- $('cantidadResultados').textContent=
-  lista.length+' producto(s) encontrado(s)';
+ $('count').textContent=
+  list.length+' producto(s) encontrado(s)';
 
- const root=$('catalogo');
+ const root=$('products');
  root.replaceChildren();
 
- for(const p of lista) {
-  root.append(tarjetaProducto(p));
- }
+ list.forEach(p=>root.append(productCard(p)));
 }
 
 function subtotal() {
- let suma=0;
+ let sum=0;
 
- for(const [id,cantidad] of Object.entries(carrito)) {
-  const p=productos.find(x=>String(x.id)===id);
-  if(p) suma+=precioUnitario(p,cantidad)*cantidad;
+ for(const [key,qty] of Object.entries(cart)) {
+  const [id,kind]=key.split(':');
+  const p=data.products.find(
+   x=>String(x.id)===id
+  );
+
+  if(p)sum+=unitPrice(p,kind,qty)*qty;
  }
 
- return suma;
+ return sum;
 }
 
-function despacho() {
- if($('modalidad').value==='retiro') {
-  return {tipo:'retiro',costo:0,texto:'Retiro sin costo'};
- }
-
- const region=normalizar($('region').value);
- const comuna=normalizar($('comuna').value);
-
- if(!region||!comuna) {
+function shipping() {
+ if($('mode').value==='pickup') {
   return {
-   tipo:'pendiente',
-   costo:null,
-   texto:'Despacho por calcular'
+   type:'pickup',
+   amount:0,
+   label:'Retiro gratis'
   };
  }
 
- const serena=region==='coquimbo'&&comuna==='la serena';
- const coquimbo=region==='coquimbo'&&comuna==='coquimbo';
+ const region=norm($('region').value);
+ const commune=norm($('commune').value);
 
- if(serena||coquimbo) {
-  if(subtotal()>=30000) {
-   return {tipo:'gratis',costo:0,texto:'Despacho gratis'};
-  }
+ if(!region||!commune) {
+  return {
+   type:'pending',
+   amount:null,
+   label:'Despacho por calcular'
+  };
+ }
 
-  const costo=serena?3000:2000;
-  return {tipo:'local',costo,texto:dinero(costo)};
+ const local=region==='coquimbo' &&
+  (commune==='la serena'||commune==='coquimbo');
+
+ if(local&&subtotal()>=30000) {
+  return {
+   type:'free',
+   amount:0,
+   label:'Despacho gratis'
+  };
+ }
+
+ if(region==='coquimbo'&&commune==='la serena') {
+  return {
+   type:'local',
+   amount:2000,
+   label:money(2000)
+  };
+ }
+
+ if(region==='coquimbo'&&commune==='coquimbo') {
+  return {
+   type:'local',
+   amount:1500,
+   label:money(1500)
+  };
  }
 
  return {
-  tipo:'externo',
-  costo:null,
-  texto:'Envío por pagar'
+  type:'external',
+  amount:null,
+  label:'Envío por pagar'
  };
 }
 
-function renderCarrito() {
- const root=$('itemsCarrito');
+function renderCart() {
+ const root=$('cartItems');
  root.replaceChildren();
 
- const entradas=Object.entries(carrito);
-
- if(!entradas.length) {
-  const vacio=elemento('p','Tu carrito está vacío.');
-  vacio.className='muted';
-  root.append(vacio);
+ if(!Object.keys(cart).length) {
+  const empty=el('p','Tu carrito está vacío.');
+  empty.className='muted';
+  root.append(empty);
  }
 
- for(const [id,cantidad] of entradas) {
-  const p=productos.find(x=>String(x.id)===id);
-  if(!p) continue;
+ for(const [key,qty] of Object.entries(cart)) {
+  const [id,kind]=key.split(':');
+  const p=data.products.find(
+   x=>String(x.id)===id
+  );
 
-  const fila=elemento('div');
-  fila.className='fila-carrito';
+  if(!p)continue;
 
-  if(p.image&&p.image.startsWith('https://')) {
-   fila.append(foto(p.image,p.name));
-  } else {
-   const vacio=elemento('div','📦');
-   vacio.style.cssText=
-    'width:70px;height:70px;display:grid;place-items:center';
-   fila.append(vacio);
-  }
+  const row=el('div');
+  row.className='cartrow';
 
-  const info=elemento('div');
-  info.className='info-carrito';
+  if(p.image)row.append(img(p.image,p.name));
 
-  info.append(elemento('strong',p.name));
+  const info=el('div');
+  info.className='cartinfo';
 
-  const unit=elemento('div',
-   'Precio unitario: '+dinero(precioUnitario(p,cantidad)));
-  unit.className='muted';
-  info.append(unit);
+  info.append(el('strong',p.name));
 
-  const monto=elemento('div',
-   dinero(precioUnitario(p,cantidad)*cantidad));
-  monto.className='precio';
-  info.append(monto);
+  const presentation=kind==='manga'
+   ? 'Manga ('+p.packs_per_manga+' paquetes)'
+   : isPaper(p)?'Paquete':'Unidad';
 
-  const controles=elemento('div');
-  controles.className='controles';
+  const description=el('div',presentation);
+  description.className='muted';
+  info.append(description);
 
-  const menos=elemento('button','−');
-  menos.className='pequeno';
-  menos.onclick=()=>{
-   if(carrito[id]<=1) delete carrito[id];
-   else carrito[id]--;
-   renderCarrito();
+  const price=el('div',
+   'Unitario: '+money(unitPrice(p,kind,qty)));
+  price.className='muted';
+  info.append(price);
+
+  const line=el('div',
+   money(unitPrice(p,kind,qty)*qty));
+  line.className='price';
+  info.append(line);
+
+  const controls=el('div');
+  controls.className='flex';
+
+  const minus=el('button','−');
+  minus.className='small';
+  minus.onclick=()=>{
+   if(cart[key]<=1)delete cart[key];
+   else cart[key]--;
+   renderCart();
   };
 
-  const numero=elemento('strong',String(cantidad));
+  const number=el('strong',String(qty));
 
-  const mas=elemento('button','+');
-  mas.className='pequeno';
-  mas.disabled=cantidad>=p.stock;
-  mas.onclick=()=>{
-   if(carrito[id]<p.stock) {
-    carrito[id]++;
-    renderCarrito();
-   }
+  const plus=el('button','+');
+  plus.className='small';
+  plus.disabled=usedStock(id)+
+   (kind==='manga'?Number(p.packs_per_manga):1)
+   >Number(p.stock);
+
+  plus.onclick=()=>add(id,kind,1);
+
+  const remove=el('button','Eliminar');
+  remove.className='small danger';
+  remove.onclick=()=>{
+   delete cart[key];
+   renderCart();
   };
 
-  const eliminar=elemento('button','Eliminar');
-  eliminar.className='pequeno peligro';
-  eliminar.onclick=()=>{
-   delete carrito[id];
-   renderCarrito();
-  };
-
-  controles.append(menos,numero,mas,eliminar);
-  info.append(controles);
-  fila.append(info);
-  root.append(fila);
+  controls.append(minus,number,plus,remove);
+  info.append(controls);
+  row.append(info);
+  root.append(row);
  }
 
  const s=subtotal();
- const e=despacho();
+ const delivery=shipping();
 
- $('subtotal').textContent=dinero(s);
- $('despacho').textContent=e.texto;
+ $('subtotal').textContent=money(s);
+ $('shipping').textContent=delivery.label;
 
- if(e.costo===null) {
-  $('textoTotal').textContent='Total productos';
-  $('total').textContent=dinero(s);
- } else {
-  $('textoTotal').textContent='Total';
-  $('total').textContent=dinero(s+e.costo);
- }
+ $('totalLabel').textContent=
+  delivery.amount===null
+   ?'Total productos':'Total';
 
- const avisos={
-  pendiente:'Despacho por calcular. Completa los datos de entrega.',
-  gratis:'La Serena y Coquimbo: despacho gratis desde $30.000.',
-  externo:'Otras Regiones / Comuna: Envío por pagar.',
-  retiro:'Retiro sin costo. Brusaam confirmará lugar y horario.'
+ $('total').textContent=money(
+  s+(delivery.amount||0)
+ );
+
+ const messages={
+  pickup:'Retiro gratis. Brusaam confirmará lugar y horario.',
+  pending:'Despacho por calcular. Completa región y comuna.',
+  free:'Despacho gratis en La Serena y Coquimbo desde $30.000.',
+  external:'Otras regiones y comunas: envío por pagar.',
+  local:'Despacho local: '+delivery.label
  };
 
- $('avisoEnvio').textContent=
-  avisos[e.tipo]||
-  ('Despacho local: '+e.texto);
+ $('shippingNotice').textContent=
+  messages[delivery.type];
 }
 
-$('buscar').oninput=()=>{
- if($('buscar').value.trim()) {
-  $('inicio').classList.add('oculto');
-  $('explorador').classList.add('oculto');
-  vista={tipo:'todos',valor:'',sub:''};
-  $('fCategoria').value='';
-  actualizarFiltroSubs();
-  $('tituloCatalogo').textContent='Resultados de búsqueda';
+$('search').oninput=()=>{
+ if($('search').value.trim()) {
+  $('home').classList.add('hidden');
+  activeSection='';
+  $('filterCategory').value='';
+  fillSubs();
+  $('subTiles').replaceChildren();
+  $('catalogTitle').textContent='Resultados de búsqueda';
  } else {
-  mostrarInicio();
+  showHome();
  }
- renderCatalogo();
+ renderProducts();
 };
 
-$('fCategoria').onchange=()=>{
- vista={tipo:'todos',valor:'',sub:''};
- actualizarFiltroSubs();
- $('fSubcategoria').value='';
- renderCatalogo();
+$('filterCategory').onchange=()=>{
+ activeSection='';
+ fillSubs();
+ $('subTiles').replaceChildren();
+ $('catalogTitle').textContent='Productos';
+ renderProducts();
 };
 
-$('fSubcategoria').onchange=renderCatalogo;
+$('filterSub').onchange=renderProducts;
+$('backHome').onclick=showHome;
 
-$('modalidad').onchange=()=>{
- $('camposEntrega').classList.toggle(
-  'oculto',$('modalidad').value==='retiro'
+$('mode').onchange=()=>{
+ $('deliveryFields').classList.toggle(
+  'hidden',$('mode').value==='pickup'
  );
- renderCarrito();
+ renderCart();
 };
 
-$('region').onchange=renderCarrito;
-$('comuna').oninput=renderCarrito;
+$('region').onchange=renderCart;
+$('commune').oninput=renderCart;
 
-$('enviar').onclick=()=>{
- const nombre=$('cliente').value.trim();
- const modalidad=$('modalidad').value;
- const direccion=$('direccion').value.trim();
- const region=$('region').value;
- const comuna=$('comuna').value.trim();
-
- if(!Object.keys(carrito).length) {
+$('checkout').onclick=()=>{
+ if(!Object.keys(cart).length) {
   alert('Agrega productos al carrito.');
   return;
  }
 
- if(!nombre) {
-  alert('Ingresa el nombre del solicitante.');
+ const name=$('customer').value.trim();
+
+ if(!name) {
+  alert('Ingresa tu nombre.');
   return;
  }
 
- if(modalidad==='entrega'&&
-    (!direccion||!region||!comuna)) {
+ const pickup=$('mode').value==='pickup';
+ const address=$('address').value.trim();
+ const region=$('region').value;
+ const commune=$('commune').value.trim();
+
+ if(!pickup&&(!address||!region||!commune)) {
   alert('Completa dirección, región y comuna.');
   return;
  }
 
- const lineas=[];
+ const lines=[];
 
- for(const [id,cantidad] of Object.entries(carrito)) {
-  const p=productos.find(x=>String(x.id)===id);
-  if(!p) continue;
+ for(const [key,qty] of Object.entries(cart)) {
+  const [id,kind]=key.split(':');
+  const p=data.products.find(
+   x=>String(x.id)===id
+  );
 
-  lineas.push(
-   cantidad+' x '+p.name+
-   ' | Unitario: '+dinero(precioUnitario(p,cantidad))+
-   ' | Subtotal: '+dinero(precioUnitario(p,cantidad)*cantidad)
+  if(!p)continue;
+
+  const presentation=kind==='manga'
+   ?'manga ('+p.packs_per_manga+' paquetes)'
+   :isPaper(p)?'paquete':'unidad';
+
+  lines.push(
+   qty+' x '+p.name+' ['+presentation+']'+
+   ' | Unitario: '+money(unitPrice(p,kind,qty))+
+   ' | Subtotal: '+money(
+    unitPrice(p,kind,qty)*qty
+   )
   );
  }
 
- const s=subtotal();
- const e=despacho();
+ const delivery=shipping();
 
- const mensaje=[
+ const message=[
   'Hola Brusaam, quiero realizar este pedido:',
   '',
-  ...lineas,
+  ...lines,
   '',
-  'Subtotal productos: '+dinero(s),
-  'Despacho: '+e.texto,
-  e.costo===null
-   ? 'Total productos sin transporte: '+dinero(s)
-   : 'Total: '+dinero(s+e.costo),
+  'Subtotal productos: '+money(subtotal()),
+  'Despacho: '+delivery.label,
+  delivery.amount===null
+   ?'Total productos sin transporte: '+money(subtotal())
+   :'Total: '+money(subtotal()+delivery.amount),
   '',
-  'Solicitante: '+nombre,
-  'Modalidad: '+(
-   modalidad==='retiro'?'Retiro':'Entrega a domicilio'
-  ),
-  ...(modalidad==='entrega'?[
-   'Dirección: '+direccion,
+  'Solicitante: '+name,
+  'Modalidad: '+(pickup?'Retiro':'Entrega a Domicilio'),
+  ...(!pickup?[
+   'Dirección: '+address,
    'Región: '+region,
-   'Comuna: '+comuna
+   'Comuna: '+commune
   ]:[])
  ].join('\n');
 
  window.location.href=
   'https://wa.me/56966282007?text='+
-  encodeURIComponent(mensaje);
+  encodeURIComponent(message);
 };
 
-async function cargarTienda() {
+async function load() {
  try {
-  const r=await fetch('/api/tienda');
-  if(!r.ok) throw Error('No se pudo cargar la tienda');
+  const response=await fetch('/api/shop');
+  if(!response.ok)throw Error();
 
-  const d=await r.json();
+  data=await response.json();
 
-  productos=d.products||[];
-  categorias=d.categories||[];
-  subcategorias=d.subcategories||[];
-  secciones=d.sections||[];
-
-  if(d.logo&&d.logo.startsWith('https://')) {
-   $('logoTienda').src=d.logo;
-  }
-
-  actualizarFiltros();
-  renderInicio();
-  renderCatalogo();
-  renderCarrito();
- } catch(error) {
-  $('catalogo').textContent=
-   'No fue posible cargar los productos. Intenta nuevamente.';
+  decorate(data);
+  fillFilters();
+  renderHome();
+  renderProducts();
+  renderCart();
+ } catch(e) {
+  $('products').textContent=
+   'No fue posible cargar el catálogo.';
  }
 }
 
-cargarTienda();
+load();
 </script>`;
 
-/* =========================================
-   ADMINISTRACION PRIVADA
-========================================= */
+/* ADMINISTRACIÓN */
 
-const admin = String.raw`
+const ADMIN_HTML = String.raw`
 <h2>Administración privada Brusaam</h2>
 
-<section id="login">
+<section id="loginArea">
  <form id="loginForm">
   <label>Contraseña
    <input id="password" type="password" required>
   </label>
   <button>Ingresar</button>
  </form>
- <p id="loginMensaje"></p>
+ <p id="loginMessage"></p>
 </section>
 
-<div id="panel" class="oculto">
+<div id="adminArea" class="hidden">
  <div class="flex">
   <h2 class="grow">Panel de Administración</h2>
-  <button id="salir" class="peligro">Cerrar sesión</button>
+  <button id="logout" class="danger">
+   Cerrar sesión
+  </button>
  </div>
 
- <div class="admin-tabs">
-  <button data-tab="productos" class="activo">Productos</button>
-  <button data-tab="secciones">Secciones especiales</button>
-  <button data-tab="categorias">Categorías</button>
-  <button data-tab="subcategorias">Subcategorías</button>
-  <button data-tab="imagen">Logo</button>
+ <div class="adminTabs">
+  <button data-tab="products" class="active">Productos</button>
+  <button data-tab="sections">Secciones</button>
+  <button data-tab="categories">Categorías</button>
+  <button data-tab="subs">Subcategorías</button>
+  <button data-tab="design">Diseño y logo</button>
  </div>
 
- <div id="tab-productos">
+ <div id="tab-products">
   <section>
    <h3>Agregar o editar producto</h3>
 
-   <form id="formProducto">
+   <form id="productForm">
     <input type="hidden" id="pId">
 
-    <label>Nombre *
-     <input id="pNombre" maxlength="160" required>
+    <label>Nombre
+     <input id="pName" maxlength="160" required>
     </label>
 
-    <label>Categoría *
-     <select id="pCategoria" required></select>
+    <label>Categoría
+     <select id="pCategory" required></select>
     </label>
 
     <label>Subcategoría
-     <select id="pSubcategoria"></select>
+     <select id="pSub"></select>
     </label>
 
     <label>Descripción
-     <textarea id="pDescripcion" maxlength="1000"></textarea>
+     <textarea id="pDescription"
+      maxlength="1000"></textarea>
     </label>
 
-    <label>Precio al detalle *
-     <input id="pDetalle" type="number" min="0" required>
+    <label>Precio al detalle
+     <input id="pRetail" type="number"
+      min="0" required>
     </label>
 
-    <label>Precio por mayor *
-     <input id="pMayor" type="number" min="0" required>
+    <label>Precio por mayor
+     <input id="pWholesale" type="number"
+      min="0" required>
     </label>
 
-    <label>Mayor desde cuántas unidades *
-     <input id="pMinimo" type="number" min="1" value="2" required>
+    <label>Precio por mayor desde cuántas unidades
+     <input id="pMin" type="number"
+      min="1" value="2" required>
     </label>
 
-    <label>Stock *
-     <input id="pStock" type="number" min="0" required>
+    <label>Stock disponible
+     <input id="pStock" type="number"
+      min="0" required>
     </label>
+
+    <div id="paperFields" class="hidden">
+     <h3>Venta especial de papel higiénico</h3>
+
+     <p class="notice">
+      Ingresa el stock en paquetes individuales.
+      Cada manga descontará del stock la cantidad
+      de paquetes que contiene.
+     </p>
+
+     <label>Precio único por manga
+      <input id="pMangaPrice" type="number"
+       min="0" value="0">
+     </label>
+
+     <label>Cuántos paquetes contiene una manga
+      <input id="pPacksPerManga" type="number"
+       min="0" value="0">
+     </label>
+    </div>
 
     <label>Fotografía del producto
-     <input id="pFoto" type="file"
-      accept="image/jpeg,image/png,image/webp">
+     <input id="pFile" type="file"
+      accept="image/png,image/jpeg,image/webp">
     </label>
 
-    <button type="button" id="subirProductoFoto">
+    <button type="button" id="uploadProduct">
      Subir fotografía
     </button>
 
-    <p id="pFotoMensaje" class="muted"></p>
-
-    <label>URL de la fotografía
-     <input id="pImagen" type="url">
+    <label>URL de fotografía
+     <input id="pImage" type="url">
     </label>
 
-    <img id="pVista"
-     style="display:none;width:150px;max-height:160px;object-fit:contain"
-     alt="Vista previa">
-
-    <h3>Mostrar también en:</h3>
+    <h3>Mostrar en secciones especiales</h3>
 
     <label>
-     <input id="pDestacados" type="checkbox">
+     <input id="pFeatured" type="checkbox">
      Los más destacados
     </label>
 
     <label>
-     <input id="pPack" type="checkbox">
+     <input id="pSavings" type="checkbox">
      Pack Ahorro
     </label>
 
     <label>
-     <input id="pOfertas" type="checkbox">
+     <input id="pOffers" type="checkbox">
      Ofertas
     </label>
 
     <label>
-     <input id="pBox" type="checkbox">
+     <input id="pPyme" type="checkbox">
      Box Pyme
     </label>
 
     <label>
-     <input id="pActivo" type="checkbox" checked>
+     <input id="pActive" type="checkbox" checked>
      Producto visible en la tienda
     </label>
 
     <div class="flex" style="margin-top:15px">
      <button>Guardar producto</button>
-     <button type="button" id="limpiarProducto"
-      class="secundario">Limpiar</button>
+     <button type="button" id="clearProduct"
+      class="secondary">Limpiar</button>
     </div>
    </form>
 
-   <p id="mensajeProducto"></p>
+   <p id="productMessage"></p>
   </section>
 
   <section>
    <h3>Productos registrados</h3>
-   <div id="listaProductos"></div>
+   <div id="productList"></div>
   </section>
  </div>
 
- <div id="tab-secciones" class="oculto">
+ <div id="tab-sections" class="hidden">
   <section>
-   <h3>Fotografías de secciones especiales</h3>
+   <h3>Fotografías de secciones</h3>
    <p class="muted">
-    Puedes cambiar la fotografía de cada sección.
-    Los productos que aparecen se seleccionan
-    desde la edición de cada producto.
+    Cambia las imágenes de Destacados,
+    Pack Ahorro, Ofertas y Box Pyme.
    </p>
-   <div id="listaSecciones"></div>
+   <div id="sectionList"></div>
   </section>
  </div>
 
- <div id="tab-categorias" class="oculto">
+ <div id="tab-categories" class="hidden">
   <section>
    <h3>Crear o editar categoría</h3>
-   <form id="formCategoria">
+
+   <form id="categoryForm">
     <input type="hidden" id="cId">
 
-    <label>Nombre de categoría
-     <input id="cNombre" maxlength="100" required>
+    <label>Nombre
+     <input id="cName" maxlength="100" required>
     </label>
 
     <label>Fotografía
-     <input id="cFoto" type="file"
-      accept="image/jpeg,image/png,image/webp">
+     <input id="cFile" type="file"
+      accept="image/png,image/jpeg,image/webp">
     </label>
 
-    <button type="button" id="cSubir">
+    <button type="button" id="uploadCategory">
      Subir fotografía
     </button>
 
     <label>URL de fotografía
-     <input id="cImagen" type="url">
+     <input id="cImage" type="url">
     </label>
 
     <label>Orden de aparición
-     <input id="cOrden" type="number" value="0">
+     <input id="cPosition" type="number" value="0">
     </label>
 
     <button>Guardar categoría</button>
-    <button type="button" id="cLimpiar"
-     class="secundario">Limpiar</button>
+    <button type="button" id="clearCategory"
+     class="secondary">Limpiar</button>
    </form>
-   <p id="cMensaje"></p>
+
+   <p id="categoryMessage"></p>
   </section>
 
   <section>
    <h3>Categorías existentes</h3>
-   <div id="listaCategorias"></div>
+   <div id="categoryList"></div>
   </section>
  </div>
 
- <div id="tab-subcategorias" class="oculto">
+ <div id="tab-subs" class="hidden">
   <section>
    <h3>Crear o editar subcategoría</h3>
-   <form id="formSubcategoria">
+
+   <form id="subForm">
     <input type="hidden" id="sId">
 
     <label>Categoría principal
-     <select id="sCategoria" required></select>
+     <select id="sCategory" required></select>
     </label>
 
-    <label>Nombre de subcategoría
-     <input id="sNombre" maxlength="100" required>
+    <label>Nombre
+     <input id="sName" maxlength="100" required>
     </label>
 
     <label>Fotografía
-     <input id="sFoto" type="file"
-      accept="image/jpeg,image/png,image/webp">
+     <input id="sFile" type="file"
+      accept="image/png,image/jpeg,image/webp">
     </label>
 
-    <button type="button" id="sSubir">
+    <button type="button" id="uploadSub">
      Subir fotografía
     </button>
 
     <label>URL de fotografía
-     <input id="sImagen" type="url">
+     <input id="sImage" type="url">
     </label>
 
     <label>Orden de aparición
-     <input id="sOrden" type="number" value="0">
+     <input id="sPosition" type="number" value="0">
     </label>
 
     <button>Guardar subcategoría</button>
-    <button type="button" id="sLimpiar"
-     class="secundario">Limpiar</button>
+    <button type="button" id="clearSub"
+     class="secondary">Limpiar</button>
    </form>
-   <p id="sMensaje"></p>
+
+   <p id="subMessage"></p>
   </section>
 
   <section>
    <h3>Subcategorías existentes</h3>
-   <div id="listaSubcategorias"></div>
+   <div id="subList"></div>
   </section>
  </div>
 
- <div id="tab-imagen" class="oculto">
+ <div id="tab-design" class="hidden">
   <section>
    <h3>Logo de Brusaam</h3>
 
    <p class="muted">
-    Para evitar el fondo negro, sube aquí
-    tu logo original en PNG con transparencia.
+    Para eliminar el fondo negro, sube
+    el logo original en PNG transparente.
    </p>
 
-   <img id="logoVista" style="max-width:180px"
-    alt="Logo actual">
+   <img id="logoPreview"
+    style="max-width:180px" alt="Logo">
 
-   <label>Seleccionar nuevo logo
-    <input id="logoArchivo" type="file"
+   <label>Archivo del logo
+    <input id="logoFile" type="file"
      accept="image/png,image/jpeg,image/webp">
    </label>
 
-   <button id="logoSubir">Subir nuevo logo</button>
+   <button id="uploadLogo">Subir logo</button>
 
    <label>URL del logo
-    <input id="logoURL" type="url">
+    <input id="logoUrl" type="url">
    </label>
 
-   <button id="logoGuardar">Guardar logo</button>
-   <p id="logoMensaje"></p>
+   <button id="saveLogo">Guardar logo</button>
+  </section>
+
+  <section>
+   <h3>Diseño gráfico de Canva</h3>
+
+   <p class="notice">
+    Exporta tu diseño desde Canva como PNG
+    o JPG, sin las barras del navegador.
+    Se utilizará como decoración superior
+    e inferior de la página.
+   </p>
+
+   <label>Imagen del diseño
+    <input id="designFile" type="file"
+     accept="image/png,image/jpeg,image/webp">
+   </label>
+
+   <button id="uploadDesign">
+    Subir diseño
+   </button>
+
+   <label>URL del diseño
+    <input id="designUrl" type="url">
+   </label>
+
+   <button id="saveDesign">
+    Guardar diseño
+   </button>
+
+   <button id="removeDesign" class="secondary">
+    Quitar diseño
+   </button>
+
+   <p id="designMessage"></p>
   </section>
  </div>
 </div>
@@ -1718,402 +1903,426 @@ const admin = String.raw`
 <script>
 const $=id=>document.getElementById(id);
 
-let datos={
+let d={
  products:[],
  categories:[],
  subcategories:[],
- sections:[],
- logo:''
+ sections:[]
 };
 
-async function api(url,method='GET',body) {
- const opts={
+async function api(path,method='GET',body) {
+ const options={
   method,
   credentials:'same-origin'
  };
 
  if(body!==undefined) {
-  opts.headers={'Content-Type':'application/json'};
-  opts.body=JSON.stringify(body);
+  options.headers={'Content-Type':'application/json'};
+  options.body=JSON.stringify(body);
  }
 
- const r=await fetch(url,opts);
- const d=await r.json().catch(()=>({}));
+ const response=await fetch(path,options);
+ const result=await response.json().catch(()=>({}));
 
- if(!r.ok) {
-  throw Error(d.error||'No se pudo completar la operación');
+ if(!response.ok) {
+  throw Error(result.error||'Error en la operación');
  }
 
- return d;
+ return result;
 }
 
-function aviso(id,mensaje) {
- $(id).textContent=mensaje;
+function message(id,text) {
+ $(id).textContent=text;
 }
 
-function opcion(select,texto,valor) {
- select.add(new Option(texto,valor));
+function option(select,label,value) {
+ select.add(new Option(label,value));
 }
 
-function llenarCategorias() {
- const ids=['pCategoria','sCategoria'];
+function openTab(name) {
+ document.querySelectorAll('[data-tab]')
+  .forEach(b=>b.classList.toggle(
+   'active',b.dataset.tab===name
+  ));
 
- for(const id of ids) {
-  const sel=$(id);
-  const anterior=sel.value;
-  sel.replaceChildren();
-
-  for(const c of datos.categories) {
-   opcion(
-    sel,c.name,
-    id==='sCategoria'?String(c.id):c.name
-   );
-  }
-
-  if([...sel.options].some(x=>x.value===anterior)) {
-   sel.value=anterior;
-  }
+ for(const tab of [
+  'products','sections','categories','subs','design'
+ ]) {
+  $('tab-'+tab).classList.toggle(
+   'hidden',tab!==name
+  );
  }
-
- llenarSubcategorias();
 }
 
-function llenarSubcategorias(valor='') {
- const categoria=$('pCategoria').value;
- const c=datos.categories.find(x=>x.name===categoria);
+document.querySelectorAll('[data-tab]').forEach(b=>{
+ b.onclick=()=>openTab(b.dataset.tab);
+});
 
- const sel=$('pSubcategoria');
- sel.replaceChildren(new Option('Sin subcategoría',''));
-
- if(c) {
-  for(const sub of datos.subcategories.filter(
-   s=>Number(s.category_id)===Number(c.id)
-  )) {
-   opcion(sel,sub.name,sub.name);
-  }
- }
-
- if(valor&&!([...sel.options].some(x=>x.value===valor))) {
-  opcion(sel,valor,valor);
- }
-
- sel.value=valor||'';
-}
-
-$('pCategoria').onchange=()=>llenarSubcategorias();
-
-async function subirArchivo(inputId) {
+async function upload(inputId) {
  const file=$(inputId).files[0];
 
- if(!file) throw Error('Selecciona una fotografía.');
+ if(!file)throw Error('Selecciona una fotografía.');
 
- if(file.size===0||file.size>5*1024*1024||
-  !['image/jpeg','image/png','image/webp'].includes(file.type)) {
-  throw Error('Usa JPG, PNG o WebP de máximo 5 MB.');
+ if(file.size===0||file.size>5*1024*1024) {
+  throw Error('El archivo debe tener máximo 5 MB.');
+ }
+
+ if(![
+  'image/jpeg','image/png','image/webp'
+ ].includes(file.type)) {
+  throw Error('Solo JPG, PNG o WebP.');
  }
 
  const form=new FormData();
  form.append('file',file);
 
- const r=await fetch('/api/admin/upload',{
+ const response=await fetch('/api/admin/upload',{
   method:'POST',
   credentials:'same-origin',
   body:form
  });
 
- const d=await r.json().catch(()=>({}));
+ const result=await response.json().catch(()=>({}));
 
- if(!r.ok) throw Error(d.error||'Error al subir imagen');
-
- return d.url;
-}
-
-async function refrescar() {
- datos=await api('/api/admin/data');
-
- if(datos.logo) {
-  $('logoVista').src=datos.logo;
-  $('logoURL').value=datos.logo;
-  $('logoTienda').src=datos.logo;
+ if(!response.ok) {
+  throw Error(result.error||'Error al subir fotografía');
  }
 
- llenarCategorias();
- listarProductos();
- listarSecciones();
- listarCategorias();
- listarSubcategorias();
+ return result.url;
 }
 
-function filaAdministracion(titulo,imagen,editar,eliminar) {
+function fillCategorySelects() {
+ const product=$('pCategory');
+ const sub=$('sCategory');
+
+ const oldProduct=product.value;
+ const oldSub=sub.value;
+
+ product.replaceChildren();
+ sub.replaceChildren();
+
+ for(const c of d.categories) {
+  option(product,c.name,c.name);
+  option(sub,c.name,String(c.id));
+ }
+
+ if([...product.options].some(
+  x=>x.value===oldProduct
+ ))product.value=oldProduct;
+
+ if([...sub.options].some(
+  x=>x.value===oldSub
+ ))sub.value=oldSub;
+
+ fillProductSubs();
+}
+
+function fillProductSubs(selected='') {
+ const category=d.categories.find(
+  c=>c.name===$('pCategory').value
+ );
+
+ const select=$('pSub');
+ select.replaceChildren(
+  new Option('Sin subcategoría','')
+ );
+
+ if(category) {
+  d.subcategories
+   .filter(s=>Number(s.category_id)===Number(category.id))
+   .forEach(s=>option(select,s.name,s.name));
+ }
+
+ if(selected&&!([...select.options].some(
+  x=>x.value===selected
+ )))option(select,selected,selected);
+
+ select.value=selected||'';
+ updatePaperFields();
+}
+
+function updatePaperFields() {
+ const paper=$('pCategory').value==='Papelería' &&
+  $('pSub').value==='Papel higiénico';
+
+ $('paperFields').classList.toggle('hidden',!paper);
+}
+
+$('pCategory').onchange=()=>fillProductSubs();
+$('pSub').onchange=updatePaperFields;
+
+function adminRow(label,image,edit,remove) {
  const row=document.createElement('div');
- row.className='admin-row flex';
+ row.className='adminRow flex';
 
- if(imagen&&imagen.startsWith('https://')) {
-  const img=document.createElement('img');
-  img.src=imagen;
-  row.append(img);
+ if(image) {
+  const photo=document.createElement('img');
+  photo.src=image;
+  row.append(photo);
  }
 
- const nombre=document.createElement('strong');
- nombre.className='grow';
- nombre.textContent=titulo;
- row.append(nombre);
+ const title=document.createElement('strong');
+ title.className='grow';
+ title.textContent=label;
+ row.append(title);
 
- const boton=document.createElement('button');
- boton.textContent='Editar';
- boton.onclick=editar;
- row.append(boton);
+ const editButton=document.createElement('button');
+ editButton.textContent='Editar';
+ editButton.onclick=edit;
+ row.append(editButton);
 
- if(eliminar) {
-  const quitar=document.createElement('button');
-  quitar.className='peligro';
-  quitar.textContent='Eliminar';
-  quitar.onclick=eliminar;
-  row.append(quitar);
+ if(remove) {
+  const deleteButton=document.createElement('button');
+  deleteButton.className='danger';
+  deleteButton.textContent='Eliminar';
+  deleteButton.onclick=remove;
+  row.append(deleteButton);
  }
 
  return row;
 }
 
-function limpiarProducto() {
- $('formProducto').reset();
+function clearProduct() {
+ $('productForm').reset();
  $('pId').value='';
- $('pImagen').value='';
- $('pVista').style.display='none';
- $('pMinimo').value='2';
- $('pActivo').checked=true;
- llenarSubcategorias();
+ $('pImage').value='';
+ $('pMin').value='2';
+ $('pMangaPrice').value='0';
+ $('pPacksPerManga').value='0';
+ $('pActive').checked=true;
+ fillProductSubs();
 }
 
-$('limpiarProducto').onclick=limpiarProducto;
+$('clearProduct').onclick=clearProduct;
 
-function listarProductos() {
- const root=$('listaProductos');
+function renderProducts() {
+ const root=$('productList');
  root.replaceChildren();
 
- for(const p of datos.products) {
-  const editar=()=>{
+ for(const p of d.products) {
+  const edit=()=>{
    $('pId').value=p.id;
-   $('pNombre').value=p.name||'';
-   $('pDescripcion').value=p.description||'';
-   $('pDetalle').value=p.retail;
-   $('pMayor').value=p.wholesale;
-   $('pMinimo').value=p.min_qty||2;
+   $('pName').value=p.name||'';
+   $('pDescription').value=p.description||'';
+   $('pRetail').value=p.retail;
+   $('pWholesale').value=p.wholesale;
+   $('pMin').value=p.min_qty||2;
    $('pStock').value=p.stock;
-   $('pImagen').value=p.image||'';
+   $('pImage').value=p.image||'';
 
-   const cat=$('pCategoria');
-
-   if(![...cat.options].some(
+   if(![...$('pCategory').options].some(
     x=>x.value===p.category
    )) {
-    opcion(cat,p.category,p.category);
+    option($('pCategory'),p.category,p.category);
    }
 
-   cat.value=p.category;
-   llenarSubcategorias(p.subcategory||'');
+   $('pCategory').value=p.category;
+   fillProductSubs(p.subcategory||'');
 
-   $('pDestacados').checked=!!p.destacados;
-   $('pPack').checked=!!p.pack_ahorro;
-   $('pOfertas').checked=!!p.ofertas;
-   $('pBox').checked=!!p.box_pyme;
-   $('pActivo').checked=!!p.active;
+   $('pMangaPrice').value=p.manga_price||0;
+   $('pPacksPerManga').value=p.packs_per_manga||0;
 
-   if(p.image) {
-    $('pVista').src=p.image;
-    $('pVista').style.display='block';
-   } else {
-    $('pVista').style.display='none';
-   }
+   $('pFeatured').checked=!!p.destacados;
+   $('pSavings').checked=!!p.pack_ahorro;
+   $('pOffers').checked=!!p.ofertas;
+   $('pPyme').checked=!!p.box_pyme;
+   $('pActive').checked=!!p.active;
 
-   document.querySelector(
-    '[data-tab="productos"]'
-   ).click();
-
+   openTab('products');
    window.scrollTo({top:0,behavior:'smooth'});
   };
 
-  const eliminar=async()=>{
-   if(!confirm('¿Eliminar '+p.name+'?')) return;
+  const remove=async()=>{
+   if(!confirm('¿Eliminar '+p.name+'?'))return;
 
    try {
-    await api('/api/admin/products/'+p.id,'DELETE',{});
-    await refrescar();
+    await api(
+     '/api/admin/products/'+p.id,
+     'DELETE',{}
+    );
+    await refresh();
    } catch(e) {
-    aviso('mensajeProducto',e.message);
+    alert(e.message);
    }
   };
 
-  root.append(filaAdministracion(
+  root.append(adminRow(
    p.name+' | $'+p.retail+' | Stock: '+p.stock,
-   p.image,editar,eliminar
+   p.image,edit,remove
   ));
  }
 }
 
-$('subirProductoFoto').onclick=async()=>{
- aviso('pFotoMensaje','Subiendo fotografía...');
-
+$('uploadProduct').onclick=async()=>{
  try {
-  const url=await subirArchivo('pFoto');
-  $('pImagen').value=url;
-  $('pVista').src=url;
-  $('pVista').style.display='block';
-  aviso('pFotoMensaje',
-   'Fotografía subida. Ahora guarda el producto.');
+  $('pImage').value=await upload('pFile');
+  message('productMessage',
+   'Fotografía subida. Guarda el producto.');
  } catch(e) {
-  aviso('pFotoMensaje',e.message);
+  message('productMessage',e.message);
  }
 };
 
-$('formProducto').onsubmit=async e=>{
+$('productForm').onsubmit=async e=>{
  e.preventDefault();
 
  const id=$('pId').value;
 
- const p={
-  name:$('pNombre').value.trim(),
-  category:$('pCategoria').value,
-  subcategory:$('pSubcategoria').value,
-  description:$('pDescripcion').value,
-  retail:Number($('pDetalle').value),
-  wholesale:Number($('pMayor').value),
-  min_qty:Number($('pMinimo').value),
+ const paper=$('pCategory').value==='Papelería' &&
+  $('pSub').value==='Papel higiénico';
+
+ const product={
+  name:$('pName').value.trim(),
+  category:$('pCategory').value,
+  subcategory:$('pSub').value,
+  description:$('pDescription').value,
+  retail:Number($('pRetail').value),
+  wholesale:Number($('pWholesale').value),
+  min_qty:Number($('pMin').value),
   stock:Number($('pStock').value),
-  image:$('pImagen').value.trim(),
-  active:$('pActivo').checked,
-  destacados:$('pDestacados').checked,
-  pack_ahorro:$('pPack').checked,
-  ofertas:$('pOfertas').checked,
-  box_pyme:$('pBox').checked
+  image:$('pImage').value.trim(),
+  manga_price:paper
+   ?Number($('pMangaPrice').value):0,
+  packs_per_manga:paper
+   ?Number($('pPacksPerManga').value):0,
+  destacados:$('pFeatured').checked,
+  pack_ahorro:$('pSavings').checked,
+  ofertas:$('pOffers').checked,
+  box_pyme:$('pPyme').checked,
+  active:$('pActive').checked
  };
 
  try {
   await api(
    '/api/admin/products'+(id?'/'+id:''),
    id?'PUT':'POST',
-   p
+   product
   );
 
-  limpiarProducto();
-  await refrescar();
-  aviso('mensajeProducto','Producto guardado correctamente.');
+  clearProduct();
+  await refresh();
+
+  message('productMessage',
+   'Producto guardado correctamente.');
  } catch(error) {
-  aviso('mensajeProducto',error.message);
+  message('productMessage',error.message);
  }
 };
 
-function listarSecciones() {
- const root=$('listaSecciones');
+function renderSections() {
+ const root=$('sectionList');
  root.replaceChildren();
 
- for(const sec of datos.sections) {
-  const card=document.createElement('div');
-  card.className='admin-row';
+ for(const section of d.sections) {
+  const box=document.createElement('div');
+  box.className='adminRow';
 
-  card.append(
-   Object.assign(document.createElement('h3'),{
-    textContent:sec.title
-   })
-  );
+  const title=document.createElement('h3');
+  title.textContent=section.title;
+  box.append(title);
 
-  if(sec.image) {
-   const img=document.createElement('img');
-   img.src=sec.image;
-   img.style.cssText=
-    'width:170px;height:110px;object-fit:cover';
-   card.append(img);
+  if(section.image) {
+   const photo=document.createElement('img');
+   photo.src=section.image;
+   photo.style.cssText=
+    'width:180px;height:110px;object-fit:cover';
+   box.append(photo);
   }
 
-  const input=document.createElement('input');
-  input.type='file';
-  input.accept='image/jpeg,image/png,image/webp';
+  const file=document.createElement('input');
+  file.type='file';
+  file.accept='image/jpeg,image/png,image/webp';
 
   const url=document.createElement('input');
   url.type='url';
-  url.placeholder='URL de la fotografía';
-  url.value=sec.image||'';
+  url.value=section.image||'';
+  url.placeholder='URL de fotografía';
 
-  const subir=document.createElement('button');
-  subir.textContent='Subir fotografía';
+  const uploadButton=document.createElement('button');
+  uploadButton.textContent='Subir fotografía';
 
-  subir.onclick=async()=>{
+  uploadButton.onclick=async()=>{
    try {
-    if(!input.files[0]) {
-     alert('Selecciona una fotografía.');
-     return;
-    }
+    if(!file.files[0])throw Error(
+     'Selecciona una fotografía.'
+    );
 
     const form=new FormData();
-    form.append('file',input.files[0]);
+    form.append('file',file.files[0]);
 
-    const r=await fetch('/api/admin/upload',{
-     method:'POST',body:form,
-     credentials:'same-origin'
+    const response=await fetch('/api/admin/upload',{
+     method:'POST',
+     credentials:'same-origin',
+     body:form
     });
 
-    const d=await r.json();
+    const result=await response.json();
 
-    if(!r.ok) throw Error(d.error||'Error al subir');
+    if(!response.ok)throw Error(result.error);
 
-    url.value=d.url;
-    alert('Fotografía subida. Presiona Guardar.');
+    url.value=result.url;
+    alert('Fotografía subida. Ahora presiona Guardar.');
    } catch(e) {
     alert(e.message);
    }
   };
 
-  const guardar=document.createElement('button');
-  guardar.textContent='Guardar sección';
+  const save=document.createElement('button');
+  save.textContent='Guardar sección';
 
-  guardar.onclick=async()=>{
+  save.onclick=async()=>{
    try {
-    await api('/api/admin/sections/'+sec.slug,
-     'PUT',{image:url.value.trim()});
-    await refrescar();
+    await api(
+     '/api/admin/sections/'+section.slug,
+     'PUT',
+     {image:url.value.trim()}
+    );
+
+    await refresh();
     alert('Sección actualizada.');
    } catch(e) {
     alert(e.message);
    }
   };
 
-  card.append(input,subir,url,guardar);
-  root.append(card);
+  box.append(file,uploadButton,url,save);
+  root.append(box);
  }
 }
 
-function limpiarCategoria() {
- $('formCategoria').reset();
+function clearCategory() {
+ $('categoryForm').reset();
  $('cId').value='';
- $('cImagen').value='';
- $('cOrden').value='0';
+ $('cImage').value='';
+ $('cPosition').value='0';
 }
 
-$('cLimpiar').onclick=limpiarCategoria;
+$('clearCategory').onclick=clearCategory;
 
-function listarCategorias() {
- const root=$('listaCategorias');
+function renderCategories() {
+ const root=$('categoryList');
  root.replaceChildren();
 
- for(const c of datos.categories) {
-  root.append(filaAdministracion(
+ for(const c of d.categories) {
+  root.append(adminRow(
    c.name,c.image,
    ()=>{
     $('cId').value=c.id;
-    $('cNombre').value=c.name;
-    $('cImagen').value=c.image||'';
-    $('cOrden').value=c.position||0;
+    $('cName').value=c.name;
+    $('cImage').value=c.image||'';
+    $('cPosition').value=c.position||0;
+    openTab('categories');
     window.scrollTo({top:0,behavior:'smooth'});
    },
    async()=>{
-    if(!confirm(
-     '¿Eliminar esta categoría y sus subcategorías?'
-    )) return;
+    if(!confirm('¿Eliminar categoría?'))return;
 
     try {
-     await api('/api/admin/categories/'+c.id,
-      'DELETE',{});
-     await refrescar();
+     await api(
+      '/api/admin/categories/'+c.id,
+      'DELETE',{}
+     );
+     await refresh();
     } catch(e) {
      alert(e.message);
     }
@@ -2122,16 +2331,17 @@ function listarCategorias() {
  }
 }
 
-$('cSubir').onclick=async()=>{
+$('uploadCategory').onclick=async()=>{
  try {
-  $('cImagen').value=await subirArchivo('cFoto');
-  aviso('cMensaje','Fotografía subida. Guarda la categoría.');
+  $('cImage').value=await upload('cFile');
+  message('categoryMessage',
+   'Fotografía subida. Guarda la categoría.');
  } catch(e) {
-  aviso('cMensaje',e.message);
+  message('categoryMessage',e.message);
  }
 };
 
-$('formCategoria').onsubmit=async e=>{
+$('categoryForm').onsubmit=async e=>{
  e.preventDefault();
 
  const id=$('cId').value;
@@ -2141,56 +2351,59 @@ $('formCategoria').onsubmit=async e=>{
    '/api/admin/categories'+(id?'/'+id:''),
    id?'PUT':'POST',
    {
-    name:$('cNombre').value.trim(),
-    image:$('cImagen').value.trim(),
-    position:Number($('cOrden').value)
+    name:$('cName').value.trim(),
+    image:$('cImage').value.trim(),
+    position:Number($('cPosition').value)
    }
   );
 
-  limpiarCategoria();
-  await refrescar();
-  aviso('cMensaje','Categoría guardada.');
+  clearCategory();
+  await refresh();
+  message('categoryMessage','Categoría guardada.');
  } catch(error) {
-  aviso('cMensaje',error.message);
+  message('categoryMessage',error.message);
  }
 };
 
-function limpiarSubcategoria() {
- $('formSubcategoria').reset();
+function clearSub() {
+ $('subForm').reset();
  $('sId').value='';
- $('sImagen').value='';
- $('sOrden').value='0';
+ $('sImage').value='';
+ $('sPosition').value='0';
 }
 
-$('sLimpiar').onclick=limpiarSubcategoria;
+$('clearSub').onclick=clearSub;
 
-function listarSubcategorias() {
- const root=$('listaSubcategorias');
+function renderSubs() {
+ const root=$('subList');
  root.replaceChildren();
 
- for(const s of datos.subcategories) {
-  const c=datos.categories.find(
-   x=>Number(x.id)===Number(s.category_id)
+ for(const s of d.subcategories) {
+  const category=d.categories.find(
+   c=>Number(c.id)===Number(s.category_id)
   );
 
-  root.append(filaAdministracion(
-   (c?.name||'Categoría')+' › '+s.name,
+  root.append(adminRow(
+   (category?.name||'Categoría')+' › '+s.name,
    s.image,
    ()=>{
     $('sId').value=s.id;
-    $('sCategoria').value=String(s.category_id);
-    $('sNombre').value=s.name;
-    $('sImagen').value=s.image||'';
-    $('sOrden').value=s.position||0;
+    $('sCategory').value=String(s.category_id);
+    $('sName').value=s.name;
+    $('sImage').value=s.image||'';
+    $('sPosition').value=s.position||0;
+    openTab('subs');
     window.scrollTo({top:0,behavior:'smooth'});
    },
    async()=>{
-    if(!confirm('¿Eliminar subcategoría?')) return;
+    if(!confirm('¿Eliminar subcategoría?'))return;
 
     try {
-     await api('/api/admin/subcategories/'+s.id,
-      'DELETE',{});
-     await refrescar();
+     await api(
+      '/api/admin/subcategories/'+s.id,
+      'DELETE',{}
+     );
+     await refresh();
     } catch(e) {
      alert(e.message);
     }
@@ -2199,17 +2412,17 @@ function listarSubcategorias() {
  }
 }
 
-$('sSubir').onclick=async()=>{
+$('uploadSub').onclick=async()=>{
  try {
-  $('sImagen').value=await subirArchivo('sFoto');
-  aviso('sMensaje',
+  $('sImage').value=await upload('sFile');
+  message('subMessage',
    'Fotografía subida. Guarda la subcategoría.');
  } catch(e) {
-  aviso('sMensaje',e.message);
+  message('subMessage',e.message);
  }
 };
 
-$('formSubcategoria').onsubmit=async e=>{
+$('subForm').onsubmit=async e=>{
  e.preventDefault();
 
  const id=$('sId').value;
@@ -2219,63 +2432,98 @@ $('formSubcategoria').onsubmit=async e=>{
    '/api/admin/subcategories'+(id?'/'+id:''),
    id?'PUT':'POST',
    {
-    category_id:Number($('sCategoria').value),
-    name:$('sNombre').value.trim(),
-    image:$('sImagen').value.trim(),
-    position:Number($('sOrden').value)
+    category_id:Number($('sCategory').value),
+    name:$('sName').value.trim(),
+    image:$('sImage').value.trim(),
+    position:Number($('sPosition').value)
    }
   );
 
-  limpiarSubcategoria();
-  await refrescar();
-  aviso('sMensaje','Subcategoría guardada.');
+  clearSub();
+  await refresh();
+  message('subMessage','Subcategoría guardada.');
  } catch(error) {
-  aviso('sMensaje',error.message);
+  message('subMessage',error.message);
  }
 };
 
-$('logoSubir').onclick=async()=>{
+$('uploadLogo').onclick=async()=>{
  try {
-  const url=await subirArchivo('logoArchivo');
-  $('logoURL').value=url;
-  $('logoVista').src=url;
-  aviso('logoMensaje',
+  const url=await upload('logoFile');
+  $('logoUrl').value=url;
+  $('logoPreview').src=url;
+  message('designMessage',
    'Logo subido. Presiona Guardar logo.');
  } catch(e) {
-  aviso('logoMensaje',e.message);
+  message('designMessage',e.message);
  }
 };
 
-$('logoGuardar').onclick=async()=>{
+$('saveLogo').onclick=async()=>{
  try {
-  await api('/api/admin/logo','PUT',{
-   image:$('logoURL').value.trim()
+  await api('/api/admin/settings/logo','PUT',{
+   value:$('logoUrl').value.trim()
   });
 
-  await refrescar();
-  aviso('logoMensaje','Logo actualizado.');
+  await refresh();
+  message('designMessage','Logo guardado.');
  } catch(e) {
-  aviso('logoMensaje',e.message);
+  message('designMessage',e.message);
  }
 };
 
-document.querySelectorAll('[data-tab]').forEach(btn=>{
- btn.onclick=()=>{
-  document.querySelectorAll('[data-tab]')
-   .forEach(x=>x.classList.remove('activo'));
+$('uploadDesign').onclick=async()=>{
+ try {
+  $('designUrl').value=await upload('designFile');
+  message('designMessage',
+   'Diseño subido. Presiona Guardar diseño.');
+ } catch(e) {
+  message('designMessage',e.message);
+ }
+};
 
-  btn.classList.add('activo');
+$('saveDesign').onclick=async()=>{
+ try {
+  await api('/api/admin/settings/design','PUT',{
+   value:$('designUrl').value.trim()
+  });
 
-  for(const nombre of [
-   'productos','secciones','categorias',
-   'subcategorias','imagen'
-  ]) {
-   $('tab-'+nombre).classList.toggle(
-    'oculto',nombre!==btn.dataset.tab
-   );
-  }
- };
-});
+  await refresh();
+  message('designMessage','Diseño guardado.');
+ } catch(e) {
+  message('designMessage',e.message);
+ }
+};
+
+$('removeDesign').onclick=async()=>{
+ if(!confirm('¿Quitar el diseño decorativo?'))return;
+
+ try {
+  await api('/api/admin/settings/design','PUT',{
+   value:''
+  });
+
+  await refresh();
+  message('designMessage','Diseño retirado.');
+ } catch(e) {
+  message('designMessage',e.message);
+ }
+};
+
+async function refresh() {
+ d=await api('/api/admin/data');
+
+ $('logoUrl').value=d.logo||'';
+ $('logoPreview').src=d.logo||'';
+ $('shopLogo').src=d.logo||'';
+ $('designUrl').value=d.design||'';
+
+ fillCategorySelects();
+ renderProducts();
+ renderSections();
+ renderCategories();
+ renderSubs();
+}
 
 $('loginForm').onsubmit=async e=>{
  e.preventDefault();
@@ -2286,142 +2534,162 @@ $('loginForm').onsubmit=async e=>{
   });
 
   $('password').value='';
-  aviso('loginMensaje','');
-  await iniciar();
+  message('loginMessage','');
+  await start();
  } catch(error) {
-  aviso('loginMensaje',error.message);
+  message('loginMessage',error.message);
  }
 };
 
-$('salir').onclick=async()=>{
+$('logout').onclick=async()=>{
  await api('/api/admin/logout','POST',{});
- await iniciar();
+ await start();
 };
 
-async function iniciar() {
+async function start() {
  try {
-  const r=await api('/api/admin/session');
+  const session=await api('/api/admin/session');
 
-  $('login').classList.toggle(
-   'oculto',r.authenticated
+  $('loginArea').classList.toggle(
+   'hidden',session.authenticated
   );
 
-  $('panel').classList.toggle(
-   'oculto',!r.authenticated
+  $('adminArea').classList.toggle(
+   'hidden',!session.authenticated
   );
 
-  if(r.authenticated) await refrescar();
+  if(session.authenticated)await refresh();
  } catch(e) {
-  aviso('loginMensaje',e.message);
+  message('loginMessage',e.message);
  }
 }
 
-iniciar();
+start();
 </script>`;
 
-/* =========================================
-   VALIDACIONES
-========================================= */
+/* VALIDACIONES */
 
-function productoValido(p) {
-  return p &&
-    typeof p.name === "string" &&
-    p.name.trim().length > 0 &&
-    p.name.length <= 160 &&
-    typeof p.category === "string" &&
-    p.category.length <= 100 &&
-    typeof p.subcategory === "string" &&
-    p.subcategory.length <= 100 &&
-    typeof p.description === "string" &&
-    p.description.length <= 1000 &&
-    Number.isSafeInteger(p.retail) &&
-    p.retail >= 0 &&
-    Number.isSafeInteger(p.wholesale) &&
-    p.wholesale >= 0 &&
-    Number.isSafeInteger(p.min_qty) &&
-    p.min_qty >= 1 &&
-    Number.isSafeInteger(p.stock) &&
-    p.stock >= 0 &&
-    esImagen(p.image);
+function productValid(p) {
+  if (!p ||
+      typeof p.name !== "string" ||
+      !p.name.trim() ||
+      p.name.length > 160 ||
+      typeof p.category !== "string" ||
+      !p.category.trim() ||
+      p.category.length > 100 ||
+      typeof p.subcategory !== "string" ||
+      p.subcategory.length > 100 ||
+      typeof p.description !== "string" ||
+      p.description.length > 1000 ||
+      !integer(p.retail) ||
+      !integer(p.wholesale) ||
+      !integer(p.min_qty, 1) ||
+      !integer(p.stock) ||
+      !integer(p.manga_price) ||
+      !integer(p.packs_per_manga) ||
+      !validImage(p.image)) {
+    return false;
+  }
+
+  const paper =
+    p.category === "Papelería" &&
+    p.subcategory === "Papel higiénico";
+
+  if (!paper &&
+      (p.manga_price || p.packs_per_manga)) {
+    return false;
+  }
+
+  if (paper) {
+    const hasPrice = p.manga_price > 0;
+    const hasQuantity = p.packs_per_manga > 0;
+
+    if (hasPrice !== hasQuantity) return false;
+  }
+
+  return true;
 }
 
-function nombreValido(p) {
+function categoryValid(p) {
   return p &&
     typeof p.name === "string" &&
-    p.name.trim().length > 0 &&
+    !!p.name.trim() &&
     p.name.length <= 100 &&
-    esImagen(p.image) &&
+    validImage(p.image) &&
     Number.isSafeInteger(p.position);
 }
 
-async function firmaCloudinary(params, secreto) {
-  const cadena = Object.keys(params)
+async function cloudinarySignature(params, secret) {
+  const text = Object.keys(params)
     .sort()
     .map(k => k + "=" + params[k])
-    .join("&") + secreto;
+    .join("&") + secret;
 
-  const hash = await crypto.subtle.digest(
+  const digest = await crypto.subtle.digest(
     "SHA-1",
-    encoder.encode(cadena)
+    enc.encode(text)
   );
 
-  return [...new Uint8Array(hash)]
+  return [...new Uint8Array(digest)]
     .map(x => x.toString(16).padStart(2, "0"))
     .join("");
 }
 
-async function subirImagen(request, env) {
+async function uploadImage(request, env) {
   if (!env.CLOUDINARY_API_KEY ||
       !env.CLOUDINARY_API_SECRET) {
-    return respuesta({
-      error: "Faltan claves de Cloudinary"
+    return json({
+      error: "Falta configurar Cloudinary"
     }, 503);
   }
 
-  const longitud = Number(
+  const length = Number(
     request.headers.get("Content-Length") || 0
   );
 
-  if (longitud > 6 * 1024 * 1024) {
-    return respuesta({
+  if (length > 6 * 1024 * 1024) {
+    return json({
       error: "Archivo demasiado grande"
     }, 413);
   }
 
-  const tipo = request.headers.get("Content-Type") || "";
+  const contentType =
+    request.headers.get("Content-Type") || "";
 
-  if (!tipo.toLowerCase().startsWith(
+  if (!contentType.toLowerCase().startsWith(
     "multipart/form-data;"
   )) {
-    return respuesta({
-      error: "Formato no permitido"
+    return json({
+      error: "Formato de carga no permitido"
     }, 400);
   }
 
-  const form = await request.formData().catch(() => null);
-  const archivo = form?.get("file");
+  const form = await request.formData()
+    .catch(() => null);
 
-  if (!(archivo instanceof File) ||
-      archivo.size === 0 ||
-      archivo.size > 5 * 1024 * 1024 ||
-      !["image/jpeg", "image/png", "image/webp"]
-        .includes(archivo.type)) {
-    return respuesta({
-      error: "Usa JPG, PNG o WebP de máximo 5 MB"
+  const file = form?.get("file");
+
+  if (!(file instanceof File) ||
+      file.size === 0 ||
+      file.size > 5 * 1024 * 1024 ||
+      ![
+        "image/png",
+        "image/jpeg",
+        "image/webp"
+      ].includes(file.type)) {
+    return json({
+      error: "Usa PNG, JPG o WebP de máximo 5 MB"
     }, 400);
   }
 
   const bytes = new Uint8Array(
-    await archivo.slice(0, 12).arrayBuffer()
+    await file.slice(0, 12).arrayBuffer()
   );
 
-  const jpeg =
-    bytes[0] === 255 &&
-    bytes[1] === 216 &&
-    bytes[2] === 255;
+  const jpeg = bytes[0] === 255 &&
+    bytes[1] === 216 && bytes[2] === 255;
 
-  const png =
-    bytes[0] === 137 &&
+  const png = bytes[0] === 137 &&
     bytes[1] === 80 &&
     bytes[2] === 78 &&
     bytes[3] === 71 &&
@@ -2435,12 +2703,12 @@ async function subirImagen(request, env) {
     String.fromCharCode(...bytes.slice(8, 12)) === "WEBP";
 
   if (!(
-    (archivo.type === "image/jpeg" && jpeg) ||
-    (archivo.type === "image/png" && png) ||
-    (archivo.type === "image/webp" && webp)
+    (file.type === "image/jpeg" && jpeg) ||
+    (file.type === "image/png" && png) ||
+    (file.type === "image/webp" && webp)
   )) {
-    return respuesta({
-      error: "El contenido no corresponde a una imagen válida"
+    return json({
+      error: "El archivo no es una imagen válida"
     }, 400);
   }
 
@@ -2449,43 +2717,42 @@ async function subirImagen(request, env) {
     timestamp: String(Math.floor(Date.now() / 1000))
   };
 
-  const signature = await firmaCloudinary(
+  const signature = await cloudinarySignature(
     params,
     env.CLOUDINARY_API_SECRET
   );
 
   const body = new FormData();
-
-  body.append("file", archivo, archivo.name);
+  body.append("file", file, file.name);
   body.append("folder", params.folder);
   body.append("timestamp", params.timestamp);
   body.append("api_key", env.CLOUDINARY_API_KEY);
   body.append("signature", signature);
 
-  const r = await fetch(
+  const response = await fetch(
     "https://api.cloudinary.com/v1_1/" +
-    CLOUD_NAME + "/image/upload",
+    CONFIG.cloud + "/image/upload",
     { method: "POST", body }
   );
 
-  const data = await r.json().catch(() => null);
+  const result = await response.json()
+    .catch(() => null);
 
-  if (!r.ok ||
-      !data?.secure_url ||
-      !data.secure_url.startsWith(
-        "https://res.cloudinary.com/" + CLOUD_NAME + "/"
+  if (!response.ok ||
+      !result?.secure_url ||
+      !result.secure_url.startsWith(
+        "https://res.cloudinary.com/" +
+        CONFIG.cloud + "/"
       )) {
-    return respuesta({
-      error: "Cloudinary rechazó la fotografía"
+    return json({
+      error: "No se pudo subir la fotografía"
     }, 502);
   }
 
-  return respuesta({ url: data.secure_url });
+  return json({ url: result.secure_url });
 }
 
-/* =========================================
-   RUTAS DEL WORKER
-========================================= */
+/* SERVIDOR */
 
 export default {
   async fetch(request, env) {
@@ -2495,45 +2762,37 @@ export default {
 
     try {
       if (path === "/" && method === "GET") {
-        return pagina(tienda);
+        return page(SHOP_HTML);
       }
 
       if (path === "/admin" && method === "GET") {
-        return pagina(admin);
+        return page(ADMIN_HTML);
       }
 
       if (path === "/api/admin/session" &&
           method === "GET") {
-        return respuesta({
-          authenticated: await autorizado(request, env)
+        return json({
+          authenticated: await authenticated(
+            request, env
+          )
         });
       }
 
-      if (path === "/api/tienda" &&
+      if (path === "/api/shop" &&
           method === "GET") {
-        await inicializar(env);
-        return respuesta(await datosTienda(env));
+        await setup(env);
+        return json(await shopData(env));
       }
 
       if (path === "/api/productos" &&
           method === "GET") {
-        await inicializar(env);
-
-        const r = await env.DB.prepare(`
-          SELECT id,name,category,subcategory,
-          description,retail,wholesale,min_qty,
-          stock,image,destacados,pack_ahorro,
-          ofertas,box_pyme
-          FROM products
-          WHERE active=1
-          ORDER BY name
-        `).all();
-
-        return respuesta(r.results || []);
+        await setup(env);
+        const d = await shopData(env);
+        return json(d.products);
       }
 
       if (!path.startsWith("/api/admin/")) {
-        return respuesta({
+        return json({
           error: "Ruta no encontrada"
         }, 404);
       }
@@ -2541,26 +2800,27 @@ export default {
       if (!env.DB ||
           !env.ADMIN_PASSWORD ||
           !env.SESSION_SECRET) {
-        return respuesta({
+        return json({
           error: "Falta configuración del administrador"
         }, 503);
       }
 
-      if (method !== "GET" && !origenValido(request)) {
-        return respuesta({
+      if (method !== "GET" &&
+          !sameOrigin(request)) {
+        return json({
           error: "Origen no permitido"
         }, 403);
       }
 
       if (path === "/api/admin/login" &&
           method === "POST") {
-        await inicializar(env);
+        await setup(env);
 
         const ip =
           request.headers.get("CF-Connecting-IP") ||
           "unknown";
 
-        const estado = await env.DB.prepare(`
+        const attempts = await env.DB.prepare(`
           SELECT failures,until_ms
           FROM login_attempts WHERE ip=?
         `).bind(ip).first() || {
@@ -2568,45 +2828,45 @@ export default {
           until_ms: 0
         };
 
-        if (estado.failures >= 5 &&
-            estado.until_ms > Date.now()) {
-          return respuesta({
-            error: "Demasiados intentos. Espera 15 minutos."
+        if (attempts.failures >= 5 &&
+            attempts.until_ms > Date.now()) {
+          return json({
+            error:
+              "Demasiados intentos. Espera 15 minutos."
           }, 429);
         }
 
         const body = await request.json()
           .catch(() => ({}));
 
-        const ingresada =
+        const entered =
           typeof body.password === "string"
             ? body.password
             : "";
 
-        const a = new Uint8Array(
+        const hashA = new Uint8Array(
           await crypto.subtle.digest(
-            "SHA-256", encoder.encode(ingresada)
+            "SHA-256", enc.encode(entered)
           )
         );
 
-        const b = new Uint8Array(
+        const hashB = new Uint8Array(
           await crypto.subtle.digest(
             "SHA-256",
-            encoder.encode(env.ADMIN_PASSWORD)
+            enc.encode(env.ADMIN_PASSWORD)
           )
         );
 
-        let diferencia = 0;
-
-        for (let i = 0; i < a.length; i++) {
-          diferencia |= a[i] ^ b[i];
+        let diff = 0;
+        for (let i = 0; i < hashA.length; i++) {
+          diff |= hashA[i] ^ hashB[i];
         }
 
-        if (diferencia !== 0) {
-          const intentos =
-            estado.until_ms < Date.now()
+        if (diff !== 0) {
+          const count =
+            attempts.until_ms < Date.now()
               ? 1
-              : estado.failures + 1;
+              : attempts.failures + 1;
 
           await env.DB.prepare(`
             INSERT INTO login_attempts
@@ -2617,11 +2877,12 @@ export default {
              failures=excluded.failures,
              until_ms=excluded.until_ms
           `).bind(
-            ip, intentos,
+            ip,
+            count,
             Date.now() + 15 * 60 * 1000
           ).run();
 
-          return respuesta({
+          return json({
             error: "Contraseña incorrecta"
           }, 401);
         }
@@ -2630,17 +2891,19 @@ export default {
           DELETE FROM login_attempts WHERE ip=?
         `).bind(ip).run();
 
-        const vence = String(
+        const expires = String(
           Date.now() + 8 * 60 * 60 * 1000
         );
 
-        const firma = await firmar(
-          vence, env.SESSION_SECRET
+        const sig = await signature(
+          expires,
+          env.SESSION_SECRET
         );
 
-        return respuesta({ ok: true }, 200, {
+        return json({ ok: true }, 200, {
           "Set-Cookie":
-            COOKIE + "=" + vence + "." + firma +
+            CONFIG.cookie + "=" +
+            expires + "." + sig +
             "; HttpOnly; Secure; SameSite=Strict;" +
             " Path=/; Max-Age=28800"
         });
@@ -2648,41 +2911,33 @@ export default {
 
       if (path === "/api/admin/logout" &&
           method === "POST") {
-        return respuesta({ ok: true }, 200, {
+        return json({ ok: true }, 200, {
           "Set-Cookie":
-            COOKIE + "=; HttpOnly; Secure;" +
-            " SameSite=Strict; Path=/; Max-Age=0"
+            CONFIG.cookie +
+            "=; HttpOnly; Secure; SameSite=Strict;" +
+            " Path=/; Max-Age=0"
         });
       }
 
-      if (!await autorizado(request, env)) {
-        return respuesta({
-          error: "Inicia sesión"
+      if (!await authenticated(request, env)) {
+        return json({
+          error: "Debes iniciar sesión"
         }, 401);
       }
 
       if (path === "/api/admin/upload" &&
           method === "POST") {
-        return subirImagen(request, env);
+        return uploadImage(request, env);
       }
 
-      await inicializar(env);
+      await setup(env);
 
       if (path === "/api/admin/data" &&
           method === "GET") {
-        const publico = await datosTienda(env);
-
-        const r = await env.DB.prepare(`
-          SELECT * FROM products ORDER BY id DESC
-        `).all();
-
-        return respuesta({
-          ...publico,
-          products: r.results || []
-        });
+        return json(await shopData(env, true));
       }
 
-      const productoId = path.match(
+      const productId = path.match(
         /^\/api\/admin\/products\/(\d+)$/
       );
 
@@ -2691,20 +2946,21 @@ export default {
         const p = await request.json()
           .catch(() => null);
 
-        if (!productoValido(p)) {
-          return respuesta({
+        if (!productValid(p)) {
+          return json({
             error: "Revisa los datos del producto"
           }, 400);
         }
 
-        const r = await env.DB.prepare(`
+        const result = await env.DB.prepare(`
           INSERT INTO products
           (
            name,category,subcategory,description,
            retail,wholesale,min_qty,stock,image,
-           active,destacados,pack_ahorro,ofertas,box_pyme
+           active,destacados,pack_ahorro,ofertas,
+           box_pyme,manga_price,packs_per_manga
           )
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         `).bind(
           p.name.trim(),
           p.category,
@@ -2719,21 +2975,23 @@ export default {
           p.destacados ? 1 : 0,
           p.pack_ahorro ? 1 : 0,
           p.ofertas ? 1 : 0,
-          p.box_pyme ? 1 : 0
+          p.box_pyme ? 1 : 0,
+          p.manga_price,
+          p.packs_per_manga
         ).run();
 
-        return respuesta({
+        return json({
           ok: true,
-          id: r.meta.last_row_id
+          id: result.meta.last_row_id
         });
       }
 
-      if (productoId && method === "PUT") {
+      if (productId && method === "PUT") {
         const p = await request.json()
           .catch(() => null);
 
-        if (!productoValido(p)) {
-          return respuesta({
+        if (!productValid(p)) {
+          return json({
             error: "Revisa los datos del producto"
           }, 400);
         }
@@ -2743,7 +3001,8 @@ export default {
            name=?,category=?,subcategory=?,
            description=?,retail=?,wholesale=?,
            min_qty=?,stock=?,image=?,active=?,
-           destacados=?,pack_ahorro=?,ofertas=?,box_pyme=?
+           destacados=?,pack_ahorro=?,ofertas=?,
+           box_pyme=?,manga_price=?,packs_per_manga=?
           WHERE id=?
         `).bind(
           p.name.trim(),
@@ -2760,77 +3019,80 @@ export default {
           p.pack_ahorro ? 1 : 0,
           p.ofertas ? 1 : 0,
           p.box_pyme ? 1 : 0,
-          Number(productoId[1])
+          p.manga_price,
+          p.packs_per_manga,
+          Number(productId[1])
         ).run();
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
-      if (productoId && method === "DELETE") {
+      if (productId && method === "DELETE") {
         await env.DB.prepare(`
           DELETE FROM products WHERE id=?
-        `).bind(Number(productoId[1])).run();
+        `).bind(Number(productId[1])).run();
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
-      const seccion = path.match(
+      const section = path.match(
         /^\/api\/admin\/sections\/([a-z_]+)$/
       );
 
-      if (seccion && method === "PUT") {
-        const slug = seccion[1];
+      if (section && method === "PUT") {
+        const slug = section[1];
 
-        if (!SECCIONES.some(s => s[0] === slug)) {
-          return respuesta({
+        if (!SECTIONS.some(s => s[0] === slug)) {
+          return json({
             error: "Sección no válida"
           }, 400);
         }
 
-        const p = await request.json()
+        const body = await request.json()
           .catch(() => null);
 
-        if (!p ||
-            typeof p.image !== "string" ||
-            !esImagen(p.image)) {
-          return respuesta({
+        if (!body || !validImage(body.image)) {
+          return json({
             error: "Imagen no válida"
           }, 400);
         }
 
         await env.DB.prepare(`
-          UPDATE shop_sections SET image=?
-          WHERE slug=?
-        `).bind(p.image, slug).run();
+          UPDATE shop_sections
+          SET image=? WHERE slug=?
+        `).bind(body.image, slug).run();
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
-      if (path === "/api/admin/logo" &&
-          method === "PUT") {
-        const p = await request.json()
+      const setting = path.match(
+        /^\/api\/admin\/settings\/(logo|design)$/
+      );
+
+      if (setting && method === "PUT") {
+        const key = setting[1];
+        const body = await request.json()
           .catch(() => null);
 
-        if (!p ||
-            typeof p.image !== "string" ||
-            !p.image.startsWith("https://") ||
-            !esImagen(p.image)) {
-          return respuesta({
-            error: "URL del logo no válida"
+        if (!body ||
+            !validImage(body.value) ||
+            (key === "logo" && !body.value)) {
+          return json({
+            error: "URL de imagen no válida"
           }, 400);
         }
 
         await env.DB.prepare(`
           INSERT INTO shop_settings(key,value)
-          VALUES('logo',?)
+          VALUES(?,?)
           ON CONFLICT(key)
           DO UPDATE SET value=excluded.value
-        `).bind(p.image).run();
+        `).bind(key, body.value).run();
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
-      const categoriaId = path.match(
+      const categoryId = path.match(
         /^\/api\/admin\/categories\/(\d+)$/
       );
 
@@ -2839,41 +3101,40 @@ export default {
         const p = await request.json()
           .catch(() => null);
 
-        if (!nombreValido(p)) {
-          return respuesta({
+        if (!categoryValid(p)) {
+          return json({
             error: "Datos de categoría inválidos"
           }, 400);
         }
 
         await env.DB.prepare(`
           INSERT INTO shop_categories
-          (name,image,position)
-          VALUES(?,?,?)
+          (name,image,position) VALUES(?,?,?)
         `).bind(
           p.name.trim(),p.image,p.position
         ).run();
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
-      if (categoriaId && method === "PUT") {
+      if (categoryId && method === "PUT") {
         const p = await request.json()
           .catch(() => null);
 
-        if (!nombreValido(p)) {
-          return respuesta({
+        if (!categoryValid(p)) {
+          return json({
             error: "Datos de categoría inválidos"
           }, 400);
         }
 
-        const id = Number(categoriaId[1]);
+        const id = Number(categoryId[1]);
 
-        const anterior = await env.DB.prepare(`
+        const old = await env.DB.prepare(`
           SELECT name FROM shop_categories WHERE id=?
         `).bind(id).first();
 
-        if (!anterior) {
-          return respuesta({
+        if (!old) {
+          return json({
             error: "Categoría no encontrada"
           }, 404);
         }
@@ -2888,37 +3149,38 @@ export default {
           ),
 
           env.DB.prepare(`
-            UPDATE products SET category=?
+            UPDATE products
+            SET category=?
             WHERE category=?
-          `).bind(p.name.trim(),anterior.name)
+          `).bind(p.name.trim(),old.name)
         ]);
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
-      if (categoriaId && method === "DELETE") {
-        const id = Number(categoriaId[1]);
+      if (categoryId && method === "DELETE") {
+        const id = Number(categoryId[1]);
 
-        const actual = await env.DB.prepare(`
+        const old = await env.DB.prepare(`
           SELECT name FROM shop_categories WHERE id=?
         `).bind(id).first();
 
-        if (!actual) {
-          return respuesta({
+        if (!old) {
+          return json({
             error: "Categoría no encontrada"
           }, 404);
         }
 
-        const uso = await env.DB.prepare(`
+        const count = await env.DB.prepare(`
           SELECT COUNT(*) AS total
           FROM products WHERE category=?
-        `).bind(actual.name).first();
+        `).bind(old.name).first();
 
-        if (uso.total > 0) {
-          return respuesta({
+        if (count.total > 0) {
+          return json({
             error:
-              "Esta categoría tiene productos. " +
-              "Cámbialos de categoría antes de eliminarla."
+              "La categoría tiene productos. " +
+              "Cámbialos antes de eliminarla."
           }, 409);
         }
 
@@ -2933,7 +3195,7 @@ export default {
           `).bind(id)
         ]);
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
       const subId = path.match(
@@ -2945,20 +3207,19 @@ export default {
         const p = await request.json()
           .catch(() => null);
 
-        if (!nombreValido(p) ||
-            !Number.isSafeInteger(p.category_id) ||
-            p.category_id < 1) {
-          return respuesta({
+        if (!categoryValid(p) ||
+            !integer(p.category_id, 1)) {
+          return json({
             error: "Datos de subcategoría inválidos"
           }, 400);
         }
 
-        const c = await env.DB.prepare(`
+        const category = await env.DB.prepare(`
           SELECT id FROM shop_categories WHERE id=?
         `).bind(p.category_id).first();
 
-        if (!c) {
-          return respuesta({
+        if (!category) {
+          return json({
             error: "Categoría principal no encontrada"
           }, 400);
         }
@@ -2974,36 +3235,36 @@ export default {
           p.position
         ).run();
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
       if (subId && method === "PUT") {
         const p = await request.json()
           .catch(() => null);
 
-        if (!nombreValido(p) ||
-            !Number.isSafeInteger(p.category_id) ||
-            p.category_id < 1) {
-          return respuesta({
+        if (!categoryValid(p) ||
+            !integer(p.category_id, 1)) {
+          return json({
             error: "Datos de subcategoría inválidos"
           }, 400);
         }
 
         const id = Number(subId[1]);
 
-        const anterior = await env.DB.prepare(`
+        const old = await env.DB.prepare(`
           SELECT s.name,c.name AS category
           FROM shop_subcategories s
-          JOIN shop_categories c ON c.id=s.category_id
+          JOIN shop_categories c
+           ON c.id=s.category_id
           WHERE s.id=?
         `).bind(id).first();
 
-        const nuevaCategoria = await env.DB.prepare(`
+        const nextCategory = await env.DB.prepare(`
           SELECT name FROM shop_categories WHERE id=?
         `).bind(p.category_id).first();
 
-        if (!anterior || !nuevaCategoria) {
-          return respuesta({
+        if (!old || !nextCategory) {
+          return json({
             error: "Categoría o subcategoría no encontrada"
           }, 404);
         }
@@ -3026,40 +3287,41 @@ export default {
             SET category=?,subcategory=?
             WHERE category=? AND subcategory=?
           `).bind(
-            nuevaCategoria.name,
+            nextCategory.name,
             p.name.trim(),
-            anterior.category,
-            anterior.name
+            old.category,
+            old.name
           )
         ]);
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
       if (subId && method === "DELETE") {
         const id = Number(subId[1]);
 
-        const sub = await env.DB.prepare(`
+        const old = await env.DB.prepare(`
           SELECT s.name,c.name AS category
           FROM shop_subcategories s
-          JOIN shop_categories c ON c.id=s.category_id
+          JOIN shop_categories c
+           ON c.id=s.category_id
           WHERE s.id=?
         `).bind(id).first();
 
-        if (!sub) {
-          return respuesta({
+        if (!old) {
+          return json({
             error: "Subcategoría no encontrada"
           }, 404);
         }
 
-        const uso = await env.DB.prepare(`
+        const count = await env.DB.prepare(`
           SELECT COUNT(*) AS total
           FROM products
           WHERE category=? AND subcategory=?
-        `).bind(sub.category,sub.name).first();
+        `).bind(old.category,old.name).first();
 
-        if (uso.total > 0) {
-          return respuesta({
+        if (count.total > 0) {
+          return json({
             error:
               "Esta subcategoría tiene productos. " +
               "Cámbialos antes de eliminarla."
@@ -3070,10 +3332,10 @@ export default {
           DELETE FROM shop_subcategories WHERE id=?
         `).bind(id).run();
 
-        return respuesta({ ok: true });
+        return json({ ok: true });
       }
 
-      return respuesta({
+      return json({
         error: "Ruta no encontrada"
       }, 404);
 
@@ -3083,13 +3345,14 @@ export default {
       if (String(error.message).includes(
         "UNIQUE constraint failed"
       )) {
-        return respuesta({
+        return json({
           error: "Ya existe un registro con ese nombre"
         }, 409);
       }
 
-      return respuesta({
-        error: "Error interno. Revisa los registros de Cloudflare."
+      return json({
+        error:
+          "Error interno. Revisa los registros de Cloudflare."
       }, 500);
     }
   }
