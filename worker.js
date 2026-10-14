@@ -124,7 +124,7 @@ section,.card {
   gap:12px
 }
 .grid .card {margin:0}
-.card img {max-width:100%;height:140px;object-fit:contain}
+.card img {max-width:100%;height:220px;object-fit:contain}
 .flex {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .flex button {flex-shrink:0}
 .small {font-size:13px;color:#52685b}
