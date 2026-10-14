@@ -39,32 +39,53 @@ async function sign(value, secret) {
     false,
     ["sign"]
   );
+
   return b64(
     new Uint8Array(
-      await crypto.subtle.sign("HMAC", key, encoder.encode(value))
+      await crypto.subtle.sign(
+        "HMAC",
+        key,
+        encoder.encode(value)
+      )
     )
   );
 }
 
 async function valid(req, env) {
   const c = cookies(req)[cookieName];
+
   if (!c || !env.SESSION_SECRET) return false;
+
   const parts = c.split(".");
   if (parts.length !== 2) return false;
+
   const [expiry, mac] = parts;
-  if (!/^\d{10,15}$/.test(expiry) || Number(expiry) < Date.now())
-    return false;
-  const expected = await sign(expiry, env.SESSION_SECRET);
+
+  if (
+    !/^\d{10,15}$/.test(expiry) ||
+    Number(expiry) < Date.now()
+  ) return false;
+
+  const expected = await sign(
+    expiry,
+    env.SESSION_SECRET
+  );
+
   if (mac.length !== expected.length) return false;
+
   let diff = 0;
-  for (let i = 0; i < mac.length; i++)
+
+  for (let i = 0; i < mac.length; i++) {
     diff |= mac.charCodeAt(i) ^ expected.charCodeAt(i);
+  }
+
   return diff === 0;
 }
 
 function sameOrigin(req) {
   const origin = req.headers.get("Origin");
-  return !!origin && origin === new URL(req.url).origin;
+  return !!origin &&
+    origin === new URL(req.url).origin;
 }
 
 function document(body) {
@@ -77,91 +98,149 @@ function document(body) {
 <title>Brusaam | La excelencia en tu hogar</title>
 <style>
 body {
-  margin:0;
-  background:#F4F7FC;
-  color:#14234B;
-  font:16px Arial,sans-serif
+  margin: 0;
+  background: #F4F7FC;
+  color: #14234B;
+  font: 16px Arial, sans-serif;
 }
+
 header {
-  background:white;
-  padding:18px;
-  text-align:center;
-  box-shadow:0 1px 4px #ddd
+  background: white;
+  padding: 18px;
+  text-align: center;
+  box-shadow: 0 1px 4px #ddd;
 }
-h1 {margin:0;color:#6524AD}
-main {max-width:980px;margin:auto;padding:16px}
-a {color:#6524AD}
-nav {margin-top:12px}
-button,.btn {
-  background:#6524AD;
-  color:white;
-  border:0;
-  border-radius:8px;
-  padding:10px 13px;
-  cursor:pointer;
-  display:inline-block;
-  text-decoration:none
+
+h1 {
+  margin: 0;
+  color: #6524AD;
 }
-button:disabled {opacity:.5}
-input,select,textarea {
-  box-sizing:border-box;
-  width:100%;
-  padding:10px;
-  border:1px solid #bbb;
-  border-radius:8px;
-  margin:4px 0 10px
+
+main {
+  max-width: 980px;
+  margin: auto;
+  padding: 16px;
 }
-label {font-size:14px}
-section,.card {
-  background:white;
-  padding:16px;
-  border-radius:12px;
-  margin:12px 0;
-  box-shadow:0 1px 4px #ddd
+
+a {
+  color: #6524AD;
 }
+
+nav {
+  margin-top: 12px;
+}
+
+button, .btn {
+  background: #6524AD;
+  color: white;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 13px;
+  cursor: pointer;
+  display: inline-block;
+  text-decoration: none;
+}
+
+button:disabled {
+  opacity: .5;
+}
+
+input, select, textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #bbb;
+  border-radius: 8px;
+  margin: 4px 0 10px;
+}
+
+label {
+  font-size: 14px;
+}
+
+section, .card {
+  background: white;
+  padding: 16px;
+  border-radius: 12px;
+  margin: 12px 0;
+  box-shadow: 0 1px 4px #ddd;
+}
+
 .grid {
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-  gap:12px
+  display: grid;
+  grid-template-columns:
+    repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
 }
-.grid .card {margin:0}
+
+.grid .card {
+  margin: 0;
+}
+
 .grid .card p:first-of-type {
-  color:#078ED5;
-  font-size:22px;
-  font-weight:700
+  color: #078ED5;
+  font-size: 22px;
+  font-weight: 700;
 }
+
 .grid .card h3 {
-  margin:10px 0;
-  color:#14234B
+  margin: 10px 0;
+  color: #14234B;
 }
+
 .grid .card img {
-  display:block;
-  margin:0 auto 12px
+  display: block;
+  margin: 0 auto 12px;
 }
+
 .card img {
-  max-width:100%;
-  height:220px;
-  object-fit:contain
+  max-width: 100%;
+  height: 220px;
+  object-fit: contain;
 }
-.flex {display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.flex button {flex-shrink:0}
-.small {font-size:13px;color:#52685b}
-.danger {background:#9d3434}
-.qty {width:75px}
-.hidden {display:none}
+
+.flex {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.flex button {
+  flex-shrink: 0;
+}
+
+.small {
+  font-size: 13px;
+  color: #52685b;
+}
+
+.danger {
+  background: #9d3434;
+}
+
+.qty {
+  width: 75px;
+}
+
+.hidden {
+  display: none;
+}
 </style>
 </head>
 <body>
 <header>
 <img
- src="https://res.cloudinary.com/oobzcqc2/image/upload/IMG_20260517_093131_502.webp"
- alt="Logo Brusaam"
- style="width:150px;max-width:65%;height:auto;border-radius:50%"
+  src="https://res.cloudinary.com/oobzcqc2/image/upload/IMG_20260517_093131_502.webp"
+  alt="Logo Brusaam"
+  style="width:150px;max-width:65%;height:auto;border-radius:50%"
 >
-<div class="small">Limpieza y cuidado personal</div>
+<div class="small">
+  Limpieza y cuidado personal
+</div>
 <nav>
-<a href="/">Tienda</a> ·
-<a href="/admin">Administración</a>
+  <a href="/">Tienda</a> ·
+  <a href="/admin">Administración</a>
 </nav>
 </header>
 <main>${body}</main>
@@ -183,147 +262,520 @@ section,.card {
 
 const shop = `
 <h2>Catálogo de productos</h2>
-<input id="buscar" placeholder="Buscar productos">
+
+<input
+  id="buscar"
+  placeholder="Buscar productos"
+>
+
 <div id="catalogo" class="grid"></div>
 
 <section>
-<h2>Mi carrito</h2>
-<div id="items"></div>
-<h3 id="total">Total: $0</h3>
-<button id="enviar">Enviar pedido por WhatsApp</button>
-<p class="small">
-Precios y stock sujetos a confirmación al recibir el pedido.
-</p>
+  <h2>Mi carrito</h2>
+
+  <div id="items"></div>
+
+  <h3 id="subtotal">
+    Subtotal: $0
+  </h3>
+
+  <h3 id="despacho">
+    Despacho: por definir
+  </h3>
+
+  <h3 id="total">
+    Total: $0
+  </h3>
+
+  <h3>Datos del solicitante</h3>
+
+  <label>
+    Nombre del solicitante *
+    <input
+      id="cliente"
+      maxlength="120"
+      placeholder="Nombre y apellido"
+      required
+    >
+  </label>
+
+  <label>
+    Entrega o retiro *
+    <select id="modalidad">
+      <option value="entrega">
+        Entrega a domicilio
+      </option>
+      <option value="retiro">
+        Retiro
+      </option>
+    </select>
+  </label>
+
+  <div id="datosEntrega">
+
+    <label>
+      Dirección *
+      <input
+        id="direccion"
+        maxlength="220"
+        placeholder="Calle, número y referencia"
+      >
+    </label>
+
+    <label>
+      Región *
+      <select id="region">
+        <option value="">
+          Selecciona una región
+        </option>
+        <option>Arica y Parinacota</option>
+        <option>Tarapacá</option>
+        <option>Antofagasta</option>
+        <option>Atacama</option>
+        <option>Coquimbo</option>
+        <option>Valparaíso</option>
+        <option>Metropolitana de Santiago</option>
+        <option>Libertador General Bernardo O'Higgins</option>
+        <option>Maule</option>
+        <option>Ñuble</option>
+        <option>Biobío</option>
+        <option>La Araucanía</option>
+        <option>Los Ríos</option>
+        <option>Los Lagos</option>
+        <option>Aysén del General Carlos Ibáñez del Campo</option>
+        <option>Magallanes y de la Antártica Chilena</option>
+      </select>
+    </label>
+
+    <label>
+      Comuna *
+      <input
+        id="comuna"
+        maxlength="100"
+        placeholder="Escribe tu comuna"
+      >
+    </label>
+
+  </div>
+
+  <p id="avisoEnvio" class="small">
+    El costo de despacho se calculará
+    según el destino.
+  </p>
+
+  <button id="enviar">
+    Enviar pedido por WhatsApp
+  </button>
+
+  <p class="small">
+    Precios, stock y condiciones de entrega
+    sujetos a confirmación por Brusaam.
+  </p>
 </section>
 
 <script>
-let productos=[],carrito={};
-const pesos=n=>'$'+Number(n).toLocaleString('es-CL');
-const unit=(p,n)=>n>=2?p.wholesale:p.retail;
+let productos = [];
+let carrito = {};
 
-function el(tag,text){
-  const x=document.createElement(tag);
-  if(text!==undefined)x.textContent=text;
+const pesos = n =>
+  '$' + Number(n).toLocaleString('es-CL');
+
+const unit = (p, n) =>
+  n >= 2 ? p.wholesale : p.retail;
+
+const campo = id =>
+  document.getElementById(id);
+
+function el(tag, text) {
+  const x = document.createElement(tag);
+
+  if (text !== undefined) {
+    x.textContent = text;
+  }
+
   return x;
 }
 
-function render(){
-  const target=document.getElementById('catalogo');
-  target.replaceChildren();
-  const q=document.getElementById('buscar').value.toLowerCase();
+function subtotalCarrito() {
+  let total = 0;
 
-  for(const p of productos.filter(x=>x.name.toLowerCase().includes(q))){
-    const c=el('div');
-    c.className='card';
-
-    if(p.image && p.image.startsWith("https://")){
-      const im=el('img');
-      im.src=p.image;
-      im.alt=p.name;
-      c.append(im);
-    }
-
-    c.append(
-      el('h3',p.name),
-      el('p','Detalle: '+pesos(p.retail)),
-      el('p','Mayor desde 2 unidades: '+pesos(p.wholesale)),
-      el('p','Stock: '+p.stock)
+  for (const [id, cantidad] of Object.entries(carrito)) {
+    const producto = productos.find(
+      p => String(p.id) === id
     );
 
-    const row=el('div');
-    row.className='flex';
+    if (producto) {
+      total += unit(producto, cantidad) * cantidad;
+    }
+  }
 
-    const inp=el('input');
-    inp.type='number';
-    inp.min='1';
-    inp.max=String(p.stock);
-    inp.value='1';
-    inp.className='qty';
+  return total;
+}
 
-    const b=el('button','Agregar');
-    b.disabled=p.stock<1;
+function normalizar(texto) {
+  return String(texto || '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\\u0300-\\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\\s+/g, ' ');
+}
 
-    b.onclick=()=>{
-      const n=Number(inp.value);
-      if(!Number.isInteger(n)||n<1||n+(carrito[p.id]||0)>p.stock){
-        alert('Cantidad inválida o stock insuficiente');
+function costoEnvio() {
+  const modalidad = campo('modalidad').value;
+
+  if (modalidad === 'retiro') {
+    return {
+      costo: 0,
+      texto: 'Retiro: sin costo',
+      tipo: 'retiro'
+    };
+  }
+
+  const region = normalizar(
+    campo('region').value
+  );
+
+  const comuna = normalizar(
+    campo('comuna').value
+  );
+
+  const subtotal = subtotalCarrito();
+
+  const esLaSerena =
+    region === 'coquimbo' &&
+    comuna === 'la serena';
+
+  const esCoquimbo =
+    region === 'coquimbo' &&
+    comuna === 'coquimbo';
+
+  if (esLaSerena || esCoquimbo) {
+    if (subtotal >= 30000) {
+      return {
+        costo: 0,
+        texto:
+          'La Serena y Coquimbo - Compras Sobre $30.000: Despacho Gratis',
+        tipo: 'gratis'
+      };
+    }
+
+    const tarifa = esLaSerena ? 3000 : 2000;
+
+    return {
+      costo: tarifa,
+      texto:
+        'Despacho ' +
+        (esLaSerena ? 'La Serena' : 'Coquimbo') +
+        ': ' +
+        pesos(tarifa),
+      tipo: 'local'
+    };
+  }
+
+  if (!region || !comuna) {
+    return {
+      costo: null,
+      texto: 'Despacho: completa región y comuna',
+      tipo: 'pendiente'
+    };
+  }
+
+  return {
+    costo: null,
+    texto:
+      'Otras Regiones / Comuna: Envío por pagar',
+    tipo: 'por_pagar'
+  };
+}
+
+function render() {
+  const target = campo('catalogo');
+  target.replaceChildren();
+
+  const busqueda = campo('buscar')
+    .value
+    .toLowerCase();
+
+  const filtrados = productos.filter(
+    p => p.name.toLowerCase().includes(busqueda)
+  );
+
+  for (const p of filtrados) {
+    const tarjeta = el('div');
+    tarjeta.className = 'card';
+
+    if (
+      p.image &&
+      p.image.startsWith('https://')
+    ) {
+      const imagen = el('img');
+      imagen.src = p.image;
+      imagen.alt = p.name;
+      tarjeta.append(imagen);
+    }
+
+    tarjeta.append(
+      el('h3', p.name),
+      el('p', 'Detalle: ' + pesos(p.retail)),
+      el(
+        'p',
+        'Mayor desde 2 unidades: ' +
+        pesos(p.wholesale)
+      ),
+      el('p', 'Stock: ' + p.stock)
+    );
+
+    const fila = el('div');
+    fila.className = 'flex';
+
+    const cantidad = el('input');
+    cantidad.type = 'number';
+    cantidad.min = '1';
+    cantidad.max = String(p.stock);
+    cantidad.value = '1';
+    cantidad.className = 'qty';
+
+    const boton = el('button', 'Agregar');
+    boton.disabled = p.stock < 1;
+
+    boton.onclick = () => {
+      const n = Number(cantidad.value);
+
+      if (
+        !Number.isInteger(n) ||
+        n < 1 ||
+        n + (carrito[p.id] || 0) > p.stock
+      ) {
+        alert(
+          'Cantidad inválida o stock insuficiente'
+        );
         return;
       }
-      carrito[p.id]=(carrito[p.id]||0)+n;
-      update();
+
+      carrito[p.id] =
+        (carrito[p.id] || 0) + n;
+
+      actualizarCarrito();
     };
 
-    row.append(inp,b);
-    c.append(row);
-    target.append(c);
+    fila.append(cantidad, boton);
+    tarjeta.append(fila);
+    target.append(tarjeta);
   }
 }
 
-function update(){
-  const t=document.getElementById('items');
-  t.replaceChildren();
-  let total=0;
+function actualizarCarrito() {
+  const contenedor = campo('items');
+  contenedor.replaceChildren();
 
-  for(const [id,n] of Object.entries(carrito)){
-    const p=productos.find(x=>String(x.id)===id);
-    if(!p)continue;
+  for (
+    const [id, cantidad] of Object.entries(carrito)
+  ) {
+    const producto = productos.find(
+      p => String(p.id) === id
+    );
 
-    const sub=unit(p,n)*n;
-    total+=sub;
+    if (!producto) continue;
 
-    const row=el('p',n+' x '+p.name+' — '+pesos(sub)+' ');
-    const b=el('button','Quitar');
+    const subtotalProducto =
+      unit(producto, cantidad) * cantidad;
 
-    b.onclick=()=>{
+    const fila = el(
+      'p',
+      cantidad +
+      ' x ' +
+      producto.name +
+      ' — ' +
+      pesos(subtotalProducto) +
+      ' '
+    );
+
+    const quitar = el('button', 'Quitar');
+
+    quitar.onclick = () => {
       delete carrito[id];
-      update();
+      actualizarCarrito();
     };
 
-    row.append(b);
-    t.append(row);
+    fila.append(quitar);
+    contenedor.append(fila);
   }
 
-  document.getElementById('total').textContent='Total: '+pesos(total);
+  const subtotal = subtotalCarrito();
+  const envio = costoEnvio();
+
+  campo('subtotal').textContent =
+    'Subtotal: ' + pesos(subtotal);
+
+  campo('despacho').textContent =
+    envio.texto;
+
+  if (envio.costo === null) {
+    campo('total').textContent =
+      'Total productos: ' + pesos(subtotal);
+  } else {
+    campo('total').textContent =
+      'Total: ' + pesos(subtotal + envio.costo);
+  }
+
+  if (envio.tipo === 'por_pagar') {
+    campo('avisoEnvio').textContent =
+      'Otras Regiones / Comuna: Envío por pagar. ' +
+      'El transporte se paga a la empresa ' +
+      'transportista según sus condiciones. ' +
+      'Brusaam confirmará la modalidad.';
+  } else if (
+    envio.tipo === 'local' ||
+    envio.tipo === 'gratis'
+  ) {
+    campo('avisoEnvio').textContent =
+      'La Serena: $3.000. ' +
+      'Coquimbo: $2.000. ' +
+      'La Serena y Coquimbo - ' +
+      'Compras Sobre $30.000: Despacho Gratis.';
+  } else if (envio.tipo === 'retiro') {
+    campo('avisoEnvio').textContent =
+      'Retiro sin costo. Brusaam confirmará ' +
+      'la dirección y horario de retiro.';
+  } else {
+    campo('avisoEnvio').textContent =
+      'Selecciona región y comuna ' +
+      'para calcular el despacho.';
+  }
 }
 
-document.getElementById('buscar').oninput=render;
+campo('buscar').oninput = render;
 
-document.getElementById('enviar').onclick=()=>{
-  let total=0;
-  const lines=[];
+campo('modalidad').onchange = () => {
+  const retiro =
+    campo('modalidad').value === 'retiro';
 
-  for(const [id,n] of Object.entries(carrito)){
-    const p=productos.find(x=>String(x.id)===id);
-    if(!p)continue;
-    const sub=unit(p,n)*n;
-    total+=sub;
-    lines.push(n+' x '+p.name+' — '+pesos(sub));
+  campo('datosEntrega').style.display =
+    retiro ? 'none' : 'block';
+
+  actualizarCarrito();
+};
+
+campo('region').onchange = actualizarCarrito;
+campo('comuna').oninput = actualizarCarrito;
+
+campo('enviar').onclick = () => {
+  const nombre = campo('cliente').value.trim();
+  const modalidad = campo('modalidad').value;
+
+  const direccion =
+    campo('direccion').value.trim();
+
+  const region = campo('region').value;
+
+  const comuna =
+    campo('comuna').value.trim();
+
+  if (!nombre) {
+    alert('Ingresa el nombre del solicitante');
+    campo('cliente').focus();
+    return;
   }
 
-  if(!lines.length){
+  if (
+    modalidad === 'entrega' &&
+    (!direccion || !region || !comuna)
+  ) {
+    alert(
+      'Completa dirección, región y comuna'
+    );
+    return;
+  }
+
+  const lineas = [];
+
+  for (
+    const [id, cantidad] of Object.entries(carrito)
+  ) {
+    const producto = productos.find(
+      p => String(p.id) === id
+    );
+
+    if (!producto) continue;
+
+    lineas.push(
+      cantidad +
+      ' x ' +
+      producto.name +
+      ' — ' +
+      pesos(
+        unit(producto, cantidad) * cantidad
+      )
+    );
+  }
+
+  if (!lineas.length) {
     alert('El carrito está vacío');
     return;
   }
 
-  const msg='Hola Brusaam, solicito:\\n'
-    +lines.join('\\n')
-    +'\\nTotal: '+pesos(total)
-    +'\\nNombre:\\nEntrega o retiro:\\nDirección (si corresponde):';
+  const subtotal = subtotalCarrito();
+  const envio = costoEnvio();
 
-  location.href='https://wa.me/56966282007?text='+encodeURIComponent(msg);
+  const datos = [
+    'Nombre del solicitante: ' + nombre,
+    'Modalidad: ' +
+      (modalidad === 'retiro'
+        ? 'Retiro'
+        : 'Entrega a domicilio')
+  ];
+
+  if (modalidad === 'entrega') {
+    datos.push(
+      'Dirección: ' + direccion,
+      'Región: ' + region,
+      'Comuna: ' + comuna
+    );
+  }
+
+  let mensaje =
+    'Hola Brusaam, solicito:\\n' +
+    lineas.join('\\n') +
+    '\\n\\nSubtotal: ' +
+    pesos(subtotal) +
+    '\\n' +
+    envio.texto;
+
+  if (envio.costo !== null) {
+    mensaje +=
+      '\\nTotal: ' +
+      pesos(subtotal + envio.costo);
+  } else {
+    mensaje +=
+      '\\nTotal productos (sin transporte): ' +
+      pesos(subtotal);
+  }
+
+  mensaje +=
+    '\\n\\n' +
+    datos.join('\\n');
+
+  location.href =
+    'https://wa.me/56966282007?text=' +
+    encodeURIComponent(mensaje);
 };
 
 fetch('/api/productos')
-  .then(r=>{
-    if(!r.ok)throw Error();
-    return r.json();
+  .then(respuesta => {
+    if (!respuesta.ok) {
+      throw Error('Error al cargar productos');
+    }
+
+    return respuesta.json();
   })
-  .then(p=>{
-    productos=p;
+  .then(datos => {
+    productos = datos;
     render();
+    actualizarCarrito();
   })
-  .catch(()=>{
-    document.getElementById('catalogo').textContent=
+  .catch(() => {
+    campo('catalogo').textContent =
       'No se pudo cargar el catálogo';
   });
 </script>`;
@@ -332,289 +784,438 @@ const admin = `
 <h2>Administración de productos</h2>
 
 <section id="login">
-<h3>Iniciar sesión</h3>
-<form id="loginForm">
-<label>Contraseña de administración
-<input id="password" type="password" autocomplete="current-password" required>
-</label>
-<button>Ingresar</button>
-</form>
-<p id="loginMsg"></p>
+  <h3>Iniciar sesión</h3>
+
+  <form id="loginForm">
+    <label>
+      Contraseña de administración
+      <input
+        id="password"
+        type="password"
+        autocomplete="current-password"
+        required
+      >
+    </label>
+
+    <button>Ingresar</button>
+  </form>
+
+  <p id="loginMsg"></p>
 </section>
 
 <div id="panel" class="hidden">
-<section>
-<div class="flex">
-<h3>Nuevo producto / Editar producto</h3>
-<button id="salir">Cerrar sesión</button>
-</div>
+  <section>
+    <div class="flex">
+      <h3>Nuevo producto / Editar producto</h3>
+      <button id="salir">
+        Cerrar sesión
+      </button>
+    </div>
 
-<form id="form">
-<input type="hidden" id="id">
+    <form id="form">
+      <input type="hidden" id="id">
 
-<label>Nombre
-<input id="name" required maxlength="160">
-</label>
+      <label>
+        Nombre
+        <input
+          id="name"
+          required
+          maxlength="160"
+        >
+      </label>
 
-<label>Categoría
-<input id="category" value="General" maxlength="80">
-</label>
+      <label>
+        Categoría
+        <input
+          id="category"
+          value="General"
+          maxlength="80"
+        >
+      </label>
 
-<label>Descripción
-<textarea id="description" maxlength="1000"></textarea>
-</label>
+      <label>
+        Descripción
+        <textarea
+          id="description"
+          maxlength="1000"
+        ></textarea>
+      </label>
 
-<label>Precio detalle (CLP)
-<input id="retail" type="number" min="0" step="1" required>
-</label>
+      <label>
+        Precio detalle (CLP)
+        <input
+          id="retail"
+          type="number"
+          min="0"
+          step="1"
+          required
+        >
+      </label>
 
-<label>Precio mayor desde 2 (CLP)
-<input id="wholesale" type="number" min="0" step="1" required>
-</label>
+      <label>
+        Precio mayor desde 2 (CLP)
+        <input
+          id="wholesale"
+          type="number"
+          min="0"
+          step="1"
+          required
+        >
+      </label>
 
-<label>Stock
-<input id="stock" type="number" min="0" step="1" required>
-</label>
+      <label>
+        Stock
+        <input
+          id="stock"
+          type="number"
+          min="0"
+          step="1"
+          required
+        >
+      </label>
 
-<label>Fotografía del producto (JPG, PNG o WebP; máximo 5 MB)
-<input id="foto" type="file" accept="image/jpeg,image/png,image/webp">
-</label>
+      <label>
+        Fotografía del producto
+        (JPG, PNG o WebP; máximo 5 MB)
+        <input
+          id="foto"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+        >
+      </label>
 
-<button type="button" id="subirFoto">Subir fotografía seleccionada</button>
-<p id="fotoEstado" class="small" role="status"></p>
+      <button
+        type="button"
+        id="subirFoto"
+      >
+        Subir fotografía seleccionada
+      </button>
 
-<img
- id="fotoVista"
- alt="Vista previa de fotografía"
- style="display:none;max-width:200px;max-height:180px;object-fit:contain"
->
+      <p
+        id="fotoEstado"
+        class="small"
+        role="status"
+      ></p>
 
-<label>URL de fotografía HTTPS (se completa automáticamente)
-<input id="image" type="url" placeholder="https://...">
-</label>
+      <img
+        id="fotoVista"
+        alt="Vista previa de fotografía"
+        style="display:none;max-width:200px;max-height:180px;object-fit:contain"
+      >
 
-<label>
-<input id="active" type="checkbox" checked style="width:auto">
-Producto visible
-</label>
+      <label>
+        URL de fotografía HTTPS
+        <input
+          id="image"
+          type="url"
+          placeholder="https://..."
+        >
+      </label>
 
-<div class="flex">
-<button>Guardar producto</button>
-<button type="button" id="limpiar">Nuevo / Limpiar</button>
-</div>
-</form>
+      <label>
+        <input
+          id="active"
+          type="checkbox"
+          checked
+          style="width:auto"
+        >
+        Producto visible
+      </label>
 
-<p id="estado"></p>
-</section>
+      <div class="flex">
+        <button>
+          Guardar producto
+        </button>
 
-<section>
-<h3>Productos</h3>
-<div id="productosAdmin"></div>
-</section>
+        <button
+          type="button"
+          id="limpiar"
+        >
+          Nuevo / Limpiar
+        </button>
+      </div>
+    </form>
+
+    <p id="estado"></p>
+  </section>
+
+  <section>
+    <h3>Productos</h3>
+    <div id="productosAdmin"></div>
+  </section>
 </div>
 
 <script>
-const $=id=>document.getElementById(id);
-let lista=[];
+const $ = id => document.getElementById(id);
 
-function msg(s){
-  $('estado').textContent=s;
+let lista = [];
+
+function msg(s) {
+  $('estado').textContent = s;
 }
 
-async function api(url,opts){
-  const r=await fetch(url,{
-    credentials:'same-origin',
+async function api(url, opts) {
+  const r = await fetch(url, {
+    credentials: 'same-origin',
     ...opts,
-    headers:{
-      'Content-Type':'application/json',
-      ...(opts?.headers||{})
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts?.headers || {})
     }
   });
-  const data=await r.json().catch(()=>({error:'Error de conexión'}));
-  if(!r.ok)throw Error(data.error||'Error');
+
+  const data = await r.json().catch(
+    () => ({ error: 'Error de conexión' })
+  );
+
+  if (!r.ok) {
+    throw Error(data.error || 'Error');
+  }
+
   return data;
 }
 
-async function iniciar(){
-  try{
-    const r=await api('/api/admin/session');
-    if(r.authenticated){
+async function iniciar() {
+  try {
+    const r = await api('/api/admin/session');
+
+    if (r.authenticated) {
       $('login').classList.add('hidden');
       $('panel').classList.remove('hidden');
       await cargar();
-    }else{
+    } else {
       $('login').classList.remove('hidden');
       $('panel').classList.add('hidden');
     }
-  }catch(e){
-    $('loginMsg').textContent=e.message;
+  } catch (e) {
+    $('loginMsg').textContent = e.message;
   }
 }
 
-$('loginForm').onsubmit=async e=>{
+$('loginForm').onsubmit = async e => {
   e.preventDefault();
-  try{
-    await api('/api/admin/login',{
-      method:'POST',
-      body:JSON.stringify({password:$('password').value})
+
+  try {
+    await api('/api/admin/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        password: $('password').value
+      })
     });
-    $('password').value='';
-    $('loginMsg').textContent='';
+
+    $('password').value = '';
+    $('loginMsg').textContent = '';
+
     await iniciar();
-  }catch(err){
-    $('loginMsg').textContent=err.message;
+  } catch (err) {
+    $('loginMsg').textContent = err.message;
   }
 };
 
-$('salir').onclick=async()=>{
-  await api('/api/admin/logout',{method:'POST',body:'{}'});
+$('salir').onclick = async () => {
+  await api('/api/admin/logout', {
+    method: 'POST',
+    body: '{}'
+  });
+
   await iniciar();
 };
 
-function limpiar(){
+function limpiar() {
   $('form').reset();
-  $('id').value='';
-  $('category').value='General';
-  $('active').checked=true;
-  $('fotoEstado').textContent='';
-  $('fotoVista').style.display='none';
+  $('id').value = '';
+  $('category').value = 'General';
+  $('active').checked = true;
+  $('fotoEstado').textContent = '';
+  $('fotoVista').style.display = 'none';
   $('fotoVista').removeAttribute('src');
   msg('');
 }
 
-$('limpiar').onclick=limpiar;
+$('limpiar').onclick = limpiar;
 
-async function cargar(){
-  lista=await api('/api/admin/products');
-  const root=$('productosAdmin');
+async function cargar() {
+  lista = await api('/api/admin/products');
+
+  const root = $('productosAdmin');
   root.replaceChildren();
 
-  for(const p of lista){
-    const row=document.createElement('p');
-    row.textContent=
-      p.name+' — $'+p.retail+' / $'+p.wholesale+' — stock '+p.stock+' ';
+  for (const p of lista) {
+    const row = document.createElement('p');
 
-    const edit=document.createElement('button');
-    edit.textContent='Editar';
+    row.textContent =
+      p.name +
+      ' — $' +
+      p.retail +
+      ' / $' +
+      p.wholesale +
+      ' — stock ' +
+      p.stock +
+      ' ';
 
-    edit.onclick=()=>{
-      for(const k of [
-        'id','name','category','description',
-        'retail','wholesale','stock','image'
-      ])$(k).value=p[k]??'';
+    const edit = document.createElement('button');
+    edit.textContent = 'Editar';
 
-      $('active').checked=!!p.active;
-      $('foto').value='';
-      $('fotoEstado').textContent='';
-      $('fotoVista').style.display=p.image?'block':'none';
+    edit.onclick = () => {
+      for (const k of [
+        'id',
+        'name',
+        'category',
+        'description',
+        'retail',
+        'wholesale',
+        'stock',
+        'image'
+      ]) {
+        $(k).value = p[k] ?? '';
+      }
 
-      if(p.image)$('fotoVista').src=p.image;
-      else $('fotoVista').removeAttribute('src');
+      $('active').checked = !!p.active;
+      $('foto').value = '';
+      $('fotoEstado').textContent = '';
 
-      window.scrollTo(0,0);
+      $('fotoVista').style.display =
+        p.image ? 'block' : 'none';
+
+      if (p.image) {
+        $('fotoVista').src = p.image;
+      } else {
+        $('fotoVista').removeAttribute('src');
+      }
+
+      window.scrollTo(0, 0);
     };
 
-    const del=document.createElement('button');
-    del.className='danger';
-    del.textContent='Eliminar';
+    const del = document.createElement('button');
+    del.className = 'danger';
+    del.textContent = 'Eliminar';
 
-    del.onclick=async()=>{
-      if(!confirm('¿Eliminar '+p.name+'?'))return;
-      try{
-        await api('/api/admin/products/'+p.id,{
-          method:'DELETE',
-          body:'{}'
-        });
+    del.onclick = async () => {
+      if (!confirm('¿Eliminar ' + p.name + '?')) {
+        return;
+      }
+
+      try {
+        await api(
+          '/api/admin/products/' + p.id,
+          {
+            method: 'DELETE',
+            body: '{}'
+          }
+        );
+
         await cargar();
-      }catch(e){
+      } catch (e) {
         msg(e.message);
       }
     };
 
-    row.append(edit,' ',del);
+    row.append(edit, ' ', del);
     root.append(row);
   }
 }
 
-$('foto').onchange=()=>{
-  $('fotoEstado').textContent='';
+$('foto').onchange = () => {
+  $('fotoEstado').textContent = '';
 };
 
-$('subirFoto').onclick=async()=>{
-  const file=$('foto').files[0];
+$('subirFoto').onclick = async () => {
+  const file = $('foto').files[0];
 
-  if(!file){
-    $('fotoEstado').textContent='Selecciona primero una fotografía.';
+  if (!file) {
+    $('fotoEstado').textContent =
+      'Selecciona primero una fotografía.';
     return;
   }
 
-  if(
-    !['image/jpeg','image/png','image/webp'].includes(file.type)
-    ||file.size>5*1024*1024
-    ||file.size===0
-  ){
-    $('fotoEstado').textContent=
+  if (
+    ![
+      'image/jpeg',
+      'image/png',
+      'image/webp'
+    ].includes(file.type) ||
+    file.size > 5 * 1024 * 1024 ||
+    file.size === 0
+  ) {
+    $('fotoEstado').textContent =
       'Selecciona JPG, PNG o WebP de máximo 5 MB.';
     return;
   }
 
-  const boton=$('subirFoto');
-  boton.disabled=true;
-  $('fotoEstado').textContent='Subiendo fotografía...';
+  const boton = $('subirFoto');
+  boton.disabled = true;
 
-  try{
-    const fd=new FormData();
-    fd.append('file',file);
+  $('fotoEstado').textContent =
+    'Subiendo fotografía...';
 
-    const response=await fetch('/api/admin/upload',{
-      method:'POST',
-      credentials:'same-origin',
-      body:fd
-    });
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
 
-    const data=await response.json().catch(()=>({
-      error:'Respuesta inválida'
-    }));
+    const response = await fetch(
+      '/api/admin/upload',
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        body: fd
+      }
+    );
 
-    if(!response.ok)
-      throw Error(data.error||'No se pudo subir la fotografía');
+    const data = await response.json().catch(
+      () => ({ error: 'Respuesta inválida' })
+    );
 
-    $('image').value=data.url;
-    $('fotoVista').src=data.url;
-    $('fotoVista').style.display='block';
-    $('fotoEstado').textContent=
+    if (!response.ok) {
+      throw Error(
+        data.error ||
+        'No se pudo subir la fotografía'
+      );
+    }
+
+    $('image').value = data.url;
+    $('fotoVista').src = data.url;
+    $('fotoVista').style.display = 'block';
+
+    $('fotoEstado').textContent =
       'Fotografía subida. Ahora presiona Guardar producto para asociarla.';
-  }catch(e){
-    $('fotoEstado').textContent=e.message;
-  }finally{
-    boton.disabled=false;
+  } catch (e) {
+    $('fotoEstado').textContent = e.message;
+  } finally {
+    boton.disabled = false;
   }
 };
 
-$('form').onsubmit=async e=>{
+$('form').onsubmit = async e => {
   e.preventDefault();
-  const id=$('id').value;
 
-  const p={
-    name:$('name').value,
-    category:$('category').value,
-    description:$('description').value,
-    retail:Number($('retail').value),
-    wholesale:Number($('wholesale').value),
-    stock:Number($('stock').value),
-    image:$('image').value,
-    active:$('active').checked
+  const id = $('id').value;
+
+  const p = {
+    name: $('name').value,
+    category: $('category').value,
+    description: $('description').value,
+    retail: Number($('retail').value),
+    wholesale: Number($('wholesale').value),
+    stock: Number($('stock').value),
+    image: $('image').value,
+    active: $('active').checked
   };
 
-  try{
-    await api('/api/admin/products'+(id?'/'+id:''),{
-      method:id?'PUT':'POST',
-      body:JSON.stringify(p)
-    });
+  try {
+    await api(
+      '/api/admin/products' +
+      (id ? '/' + id : ''),
+      {
+        method: id ? 'PUT' : 'POST',
+        body: JSON.stringify(p)
+      }
+    );
+
     limpiar();
     msg('Producto guardado');
+
     await cargar();
-  }catch(e){
+  } catch (e) {
     msg(e.message);
   }
 };
@@ -622,290 +1223,497 @@ $('form').onsubmit=async e=>{
 iniciar();
 </script>`;
 
-async function failedLogins(env,ip){
+async function failedLogins(env, ip) {
   await env.DB.prepare(
     'CREATE TABLE IF NOT EXISTS login_attempts (ip TEXT PRIMARY KEY, failures INTEGER NOT NULL, until_ms INTEGER NOT NULL)'
   ).run();
 
-  const r=await env.DB.prepare(
+  const r = await env.DB.prepare(
     'SELECT failures, until_ms FROM login_attempts WHERE ip = ?'
   ).bind(ip).first();
 
-  return r||{failures:0,until_ms:0};
+  return r || {
+    failures: 0,
+    until_ms: 0
+  };
 }
 
-async function trackFailure(env,ip,n){
+async function trackFailure(env, ip, n) {
   await env.DB.prepare(
     'INSERT INTO login_attempts (ip,failures,until_ms) VALUES (?,?,?) ON CONFLICT(ip) DO UPDATE SET failures=excluded.failures,until_ms=excluded.until_ms'
-  ).bind(ip,n,Date.now()+15*60*1000).run();
+  ).bind(
+    ip,
+    n,
+    Date.now() + 15 * 60 * 1000
+  ).run();
 }
 
-function checkProduct(p){
-  if(
-    !p||
-    typeof p.name!=='string'||
-    !p.name.trim()||
-    p.name.length>160||
-    typeof p.category!=='string'||
-    p.category.length>80||
-    typeof p.description!=='string'||
-    p.description.length>1000||
-    !Number.isSafeInteger(p.retail)||
-    p.retail<0||
-    !Number.isSafeInteger(p.wholesale)||
-    p.wholesale<0||
-    !Number.isSafeInteger(p.stock)||
-    p.stock<0||
-    typeof p.image!=='string'||
-    p.image.length>1500||
-    (!!p.image&&!p.image.startsWith("https://"))
-  )return false;
+function checkProduct(p) {
+  if (
+    !p ||
+    typeof p.name !== 'string' ||
+    !p.name.trim() ||
+    p.name.length > 160 ||
+    typeof p.category !== 'string' ||
+    p.category.length > 80 ||
+    typeof p.description !== 'string' ||
+    p.description.length > 1000 ||
+    !Number.isSafeInteger(p.retail) ||
+    p.retail < 0 ||
+    !Number.isSafeInteger(p.wholesale) ||
+    p.wholesale < 0 ||
+    !Number.isSafeInteger(p.stock) ||
+    p.stock < 0 ||
+    typeof p.image !== 'string' ||
+    p.image.length > 1500 ||
+    (
+      !!p.image &&
+      !p.image.startsWith('https://')
+    )
+  ) {
+    return false;
+  }
 
   return true;
 }
 
-async function cloudinarySignature(params,secret){
-  const signed=Object.keys(params)
-    .sort()
-    .map(k=>k+'='+params[k])
-    .join('&')+secret;
+async function cloudinarySignature(
+  params,
+  secret
+) {
+  const signed =
+    Object.keys(params)
+      .sort()
+      .map(k => k + '=' + params[k])
+      .join('&') +
+    secret;
 
-  const digest=await crypto.subtle.digest(
+  const digest = await crypto.subtle.digest(
     'SHA-1',
     encoder.encode(signed)
   );
 
   return [...new Uint8Array(digest)]
-    .map(b=>b.toString(16).padStart(2,'0'))
+    .map(
+      b => b.toString(16).padStart(2, '0')
+    )
     .join('');
 }
 
 export default {
-  async fetch(request,env){
-    const url=new URL(request.url);
-    const path=url.pathname;
-    const method=request.method;
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
 
-    try{
-      if(path==='/')return document(shop);
+    try {
+      if (path === '/' && method === 'GET') {
+        return document(shop);
+      }
 
-      if(path==='/admin'&&method==='GET')
+      if (
+        path === '/admin' &&
+        method === 'GET'
+      ) {
         return document(admin);
+      }
 
-      if(path==='/api/productos'&&method==='GET'){
-        const r=await env.DB.prepare(
+      if (
+        path === '/api/productos' &&
+        method === 'GET'
+      ) {
+        const r = await env.DB.prepare(
           'SELECT id,name,category,retail,wholesale,stock,image FROM products WHERE active=1 ORDER BY name'
         ).all();
+
         return json(r.results);
       }
 
-      if(path==='/api/admin/session'&&method==='GET')
-        return json({authenticated:await valid(request,env)});
+      if (
+        path === '/api/admin/session' &&
+        method === 'GET'
+      ) {
+        return json({
+          authenticated:
+            await valid(request, env)
+        });
+      }
 
-      if(path.startsWith('/api/admin/')){
-        if(!env.DB||!env.ADMIN_PASSWORD||!env.SESSION_SECRET)
-          return json({error:'Falta configuración de seguridad'},503);
+      if (path.startsWith('/api/admin/')) {
+        if (
+          !env.DB ||
+          !env.ADMIN_PASSWORD ||
+          !env.SESSION_SECRET
+        ) {
+          return json({
+            error:
+              'Falta configuración de seguridad'
+          }, 503);
+        }
 
-        if(method!=='GET'&&!sameOrigin(request))
-          return json({error:'Origen no permitido'},403);
+        if (
+          method !== 'GET' &&
+          !sameOrigin(request)
+        ) {
+          return json({
+            error: 'Origen no permitido'
+          }, 403);
+        }
 
-        if(path==='/api/admin/login'&&method==='POST'){
-          const ip=request.headers.get('CF-Connecting-IP')||'unknown';
-          const state=await failedLogins(env,ip);
+        if (
+          path === '/api/admin/login' &&
+          method === 'POST'
+        ) {
+          const ip =
+            request.headers.get(
+              'CF-Connecting-IP'
+            ) || 'unknown';
 
-          if(state.failures>=5&&state.until_ms>Date.now())
+          const state = await failedLogins(
+            env,
+            ip
+          );
+
+          if (
+            state.failures >= 5 &&
+            state.until_ms > Date.now()
+          ) {
             return json({
-              error:'Demasiados intentos. Espera 15 minutos.'
-            },429);
+              error:
+                'Demasiados intentos. Espera 15 minutos.'
+            }, 429);
+          }
 
-          const body=await request.json().catch(()=>({}));
-          const supplied=typeof body.password==='string'?body.password:'';
-          const stored=env.ADMIN_PASSWORD;
+          const body = await request
+            .json()
+            .catch(() => ({}));
 
-          const a=await crypto.subtle.digest(
-            'SHA-256',encoder.encode(supplied)
+          const supplied =
+            typeof body.password === 'string'
+              ? body.password
+              : '';
+
+          const stored = env.ADMIN_PASSWORD;
+
+          const a = await crypto.subtle.digest(
+            'SHA-256',
+            encoder.encode(supplied)
           );
-          const b=await crypto.subtle.digest(
-            'SHA-256',encoder.encode(stored)
+
+          const b = await crypto.subtle.digest(
+            'SHA-256',
+            encoder.encode(stored)
           );
 
-          const aa=new Uint8Array(a);
-          const bb=new Uint8Array(b);
-          let diff=0;
+          const aa = new Uint8Array(a);
+          const bb = new Uint8Array(b);
 
-          for(let i=0;i<aa.length;i++)
-            diff|=aa[i]^bb[i];
+          let diff = 0;
 
-          if(diff!==0){
+          for (let i = 0; i < aa.length; i++) {
+            diff |= aa[i] ^ bb[i];
+          }
+
+          if (diff !== 0) {
             await trackFailure(
               env,
               ip,
-              state.until_ms<Date.now()?1:state.failures+1
+              state.until_ms < Date.now()
+                ? 1
+                : state.failures + 1
             );
-            return json({error:'Contraseña incorrecta'},401);
+
+            return json({
+              error: 'Contraseña incorrecta'
+            }, 401);
           }
 
           await env.DB.prepare(
             'DELETE FROM login_attempts WHERE ip=?'
           ).bind(ip).run();
 
-          const expiry=String(Date.now()+8*60*60*1000);
-          const mac=await sign(expiry,env.SESSION_SECRET);
+          const expiry = String(
+            Date.now() + 8 * 60 * 60 * 1000
+          );
 
-          return json({ok:true},200,{
-            'Set-Cookie':
-              cookieName+'='+expiry+'.'+mac+
-              '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800'
-          });
+          const mac = await sign(
+            expiry,
+            env.SESSION_SECRET
+          );
+
+          return json(
+            { ok: true },
+            200,
+            {
+              'Set-Cookie':
+                cookieName +
+                '=' +
+                expiry +
+                '.' +
+                mac +
+                '; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=28800'
+            }
+          );
         }
 
-        if(path==='/api/admin/logout'&&method==='POST')
-          return json({ok:true},200,{
-            'Set-Cookie':
-              cookieName+'=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'
-          });
+        if (
+          path === '/api/admin/logout' &&
+          method === 'POST'
+        ) {
+          return json(
+            { ok: true },
+            200,
+            {
+              'Set-Cookie':
+                cookieName +
+                '=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0'
+            }
+          );
+        }
 
-        if(!await valid(request,env))
-          return json({error:'Inicia sesión'},401);
+        if (!await valid(request, env)) {
+          return json({
+            error: 'Inicia sesión'
+          }, 401);
+        }
 
-        if(path==='/api/admin/upload'&&method==='POST'){
-          if(!env.CLOUDINARY_API_KEY||!env.CLOUDINARY_API_SECRET)
+        if (
+          path === '/api/admin/upload' &&
+          method === 'POST'
+        ) {
+          if (
+            !env.CLOUDINARY_API_KEY ||
+            !env.CLOUDINARY_API_SECRET
+          ) {
             return json({
-              error:'Faltan las claves de Cloudinary en Cloudflare'
-            },503);
+              error:
+                'Faltan las claves de Cloudinary en Cloudflare'
+            }, 503);
+          }
 
-          const len=Number(
-            request.headers.get('Content-Length')||0
+          const len = Number(
+            request.headers.get(
+              'Content-Length'
+            ) || 0
           );
 
-          if(len>6*1024*1024)
+          if (len > 6 * 1024 * 1024) {
             return json({
-              error:'La fotografía supera el tamaño permitido'
-            },413);
+              error:
+                'La fotografía supera el tamaño permitido'
+            }, 413);
+          }
 
-          if(
-            !(request.headers.get('Content-Type')||'')
-              .toLowerCase()
-              .startsWith('multipart/form-data;')
-          )
+          const contentType =
+            (
+              request.headers.get(
+                'Content-Type'
+              ) || ''
+            ).toLowerCase();
+
+          if (
+            !contentType.startsWith(
+              'multipart/form-data;'
+            )
+          ) {
             return json({
-              error:'Formato de subida no válido'
-            },400);
+              error:
+                'Formato de subida no válido'
+            }, 400);
+          }
 
-          const form=await request.formData().catch(()=>null);
-          const file=form?.get('file');
+          const form = await request
+            .formData()
+            .catch(() => null);
 
-          if(
-            !(file instanceof File)||
-            file.size===0||
-            file.size>5*1024*1024||
-            !['image/jpeg','image/png','image/webp'].includes(file.type)
-          )
+          const file = form?.get('file');
+
+          if (
+            !(file instanceof File) ||
+            file.size === 0 ||
+            file.size > 5 * 1024 * 1024 ||
+            ![
+              'image/jpeg',
+              'image/png',
+              'image/webp'
+            ].includes(file.type)
+          ) {
             return json({
-              error:'Solo JPG, PNG o WebP de máximo 5 MB'
-            },400);
+              error:
+                'Solo JPG, PNG o WebP de máximo 5 MB'
+            }, 400);
+          }
 
-          const bytes=new Uint8Array(
-            await file.slice(0,12).arrayBuffer()
+          const bytes = new Uint8Array(
+            await file
+              .slice(0, 12)
+              .arrayBuffer()
           );
 
-          const jpeg=
-            bytes[0]===255&&
-            bytes[1]===216&&
-            bytes[2]===255;
+          const jpeg =
+            bytes[0] === 255 &&
+            bytes[1] === 216 &&
+            bytes[2] === 255;
 
-          const png=
-            bytes[0]===137&&
-            bytes[1]===80&&
-            bytes[2]===78&&
-            bytes[3]===71&&
-            bytes[4]===13&&
-            bytes[5]===10&&
-            bytes[6]===26&&
-            bytes[7]===10;
+          const png =
+            bytes[0] === 137 &&
+            bytes[1] === 80 &&
+            bytes[2] === 78 &&
+            bytes[3] === 71 &&
+            bytes[4] === 13 &&
+            bytes[5] === 10 &&
+            bytes[6] === 26 &&
+            bytes[7] === 10;
 
-          const webp=
-            String.fromCharCode(...bytes.slice(0,4))==='RIFF'&&
-            String.fromCharCode(...bytes.slice(8,12))==='WEBP';
+          const webp =
+            String.fromCharCode(
+              ...bytes.slice(0, 4)
+            ) === 'RIFF' &&
+            String.fromCharCode(
+              ...bytes.slice(8, 12)
+            ) === 'WEBP';
 
-          if(!(
-            (file.type==='image/jpeg'&&jpeg)||
-            (file.type==='image/png'&&png)||
-            (file.type==='image/webp'&&webp)
-          ))
+          if (!(
+            (
+              file.type === 'image/jpeg' &&
+              jpeg
+            ) ||
+            (
+              file.type === 'image/png' &&
+              png
+            ) ||
+            (
+              file.type === 'image/webp' &&
+              webp
+            )
+          )) {
             return json({
-              error:'El contenido no corresponde a una imagen válida'
-            },400);
+              error:
+                'El contenido no corresponde a una imagen válida'
+            }, 400);
+          }
 
-          const params={
-            folder:'brusaam-productos',
-            timestamp:String(Math.floor(Date.now()/1000))
+          const params = {
+            folder: 'brusaam-productos',
+            timestamp: String(
+              Math.floor(Date.now() / 1000)
+            )
           };
 
-          const signature=await cloudinarySignature(
-            params,env.CLOUDINARY_API_SECRET
+          const signature =
+            await cloudinarySignature(
+              params,
+              env.CLOUDINARY_API_SECRET
+            );
+
+          const body = new FormData();
+
+          body.append(
+            'file',
+            file,
+            file.name
           );
 
-          const body=new FormData();
-          body.append('file',file,file.name);
-          body.append('folder',params.folder);
-          body.append('timestamp',params.timestamp);
-          body.append('api_key',env.CLOUDINARY_API_KEY);
-          body.append('signature',signature);
+          body.append(
+            'folder',
+            params.folder
+          );
 
-          const upstream=await fetch(
+          body.append(
+            'timestamp',
+            params.timestamp
+          );
+
+          body.append(
+            'api_key',
+            env.CLOUDINARY_API_KEY
+          );
+
+          body.append(
+            'signature',
+            signature
+          );
+
+          const upstream = await fetch(
             'https://api.cloudinary.com/v1_1/oobzcqc2/image/upload',
-            {method:'POST',body}
+            {
+              method: 'POST',
+              body
+            }
           );
 
-          const result=await upstream.json().catch(()=>null);
+          const result = await upstream
+            .json()
+            .catch(() => null);
 
-          if(
-            !upstream.ok||
-            !result?.secure_url||
+          if (
+            !upstream.ok ||
+            !result?.secure_url ||
             !result.secure_url.startsWith(
               'https://res.cloudinary.com/oobzcqc2/'
             )
-          )
+          ) {
             return json({
-              error:'Cloudinary rechazó la fotografía. Comprueba la configuración de las claves.'
-            },502);
+              error:
+                'Cloudinary rechazó la fotografía. Comprueba la configuración de las claves.'
+            }, 502);
+          }
 
-          return json({url:result.secure_url});
+          return json({
+            url: result.secure_url
+          });
         }
 
-        if(path==='/api/admin/products'&&method==='GET'){
-          const r=await env.DB.prepare(
+        if (
+          path === '/api/admin/products' &&
+          method === 'GET'
+        ) {
+          const r = await env.DB.prepare(
             'SELECT * FROM products ORDER BY id DESC'
           ).all();
+
           return json(r.results);
         }
 
-        if(
-          (path==='/api/admin/products'&&method==='POST')||
-          (
-            /^\/api\/admin\/products\/\d+$/.test(path)&&
-            ['PUT','DELETE'].includes(method)
-          )
-        ){
-          const id=Number(path.split('/').pop());
+        const match = path.match(
+          /^\/api\/admin\/products\/(\d+)$/
+        );
 
-          if(method==='DELETE'){
+        if (
+          (
+            path === '/api/admin/products' &&
+            method === 'POST'
+          ) ||
+          (
+            match &&
+            ['PUT', 'DELETE'].includes(method)
+          )
+        ) {
+          const id = match
+            ? Number(match[1])
+            : null;
+
+          if (method === 'DELETE') {
             await env.DB.prepare(
               'DELETE FROM products WHERE id=?'
             ).bind(id).run();
-            return json({ok:true});
+
+            return json({ ok: true });
           }
 
-          const p=await request.json().catch(()=>null);
+          const p = await request
+            .json()
+            .catch(() => null);
 
-          if(!checkProduct(p))
+          if (!checkProduct(p)) {
             return json({
-              error:'Revisa los campos del producto'
-            },400);
+              error:
+                'Revisa los campos del producto'
+            }, 400);
+          }
 
-          if(method==='POST'){
-            const r=await env.DB.prepare(
+          if (method === 'POST') {
+            const r = await env.DB.prepare(
               'INSERT INTO products(name,category,description,retail,wholesale,min_qty,stock,image,active) VALUES(?,?,?,?,?,2,?,?,?)'
             ).bind(
               p.name.trim(),
@@ -915,12 +1723,12 @@ export default {
               p.wholesale,
               p.stock,
               p.image,
-              p.active?1:0
+              p.active ? 1 : 0
             ).run();
 
             return json({
-              ok:true,
-              id:r.meta.last_row_id
+              ok: true,
+              id: r.meta.last_row_id
             });
           }
 
@@ -934,23 +1742,26 @@ export default {
             p.wholesale,
             p.stock,
             p.image,
-            p.active?1:0,
+            p.active ? 1 : 0,
             id
           ).run();
 
-          return json({ok:true});
+          return json({ ok: true });
         }
 
         return json({
-          error:'Ruta no encontrada'
-        },404);
+          error: 'Ruta no encontrada'
+        }, 404);
       }
 
-      return new Response('No encontrado',{status:404});
-    }catch(e){
+      return new Response(
+        'No encontrado',
+        { status: 404 }
+      );
+    } catch (e) {
       return json({
-        error:'Error interno de la tienda'
-      },500);
+        error: 'Error interno de la tienda'
+      }, 500);
     }
   }
 };
