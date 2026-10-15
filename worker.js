@@ -198,6 +198,7 @@ async function initialize(env) {
   if (!information.results?.length) {
     throw Error(
       "No existe la tabla products en D1"
+
     );
   }
 
@@ -398,6 +399,7 @@ const FLORAL_TOP = `
   <stop offset="1" stop-color="#7731E8"/>
  </linearGradient>
  <linearGradient id="petalTop"
+
   x1="0" y1="0" x2="1" y2="1">
   <stop offset="0" stop-color="#E1B6FF"/>
   <stop offset="1" stop-color="#7936DB"/>
@@ -496,10 +498,10 @@ const FLORAL_BOTTOM = `
 
 function htmlPage(content, admin = false) {
   const floralHeader = admin ? "" :
-    `<div class="floralTop">${FLORAL_TOP}</div>`;
+    `<div class="headerDesign"><img src="https://res.cloudinary.com/oobzcqc2/image/upload/phekttrxgumvglym7b2h" alt="Ondas decorativas Brusaam"></div>`;
 
   const floralFooter = admin ? "" :
-    `<div class="floralBottom">${FLORAL_BOTTOM}</div>`;
+    `<div class="footerDesign"><img src="https://res.cloudinary.com/oobzcqc2/image/upload/phekttrxgumvglym7b2h" alt="Ondas decorativas Brusaam" loading="lazy"></div>`;
 
   return new Response(`<!doctype html>
 <html lang="es">
@@ -598,6 +600,7 @@ a{color:var(--purple)}
 main{
  max-width:1320px;
  margin:auto;
+
  padding:15px 20px 26px;
 }
 .welcome{
@@ -624,7 +627,6 @@ main{
  font-size:22px;
  color:var(--purple);
 }
-
 .shopLayout{
  display:grid;
  grid-template-columns:minmax(0,1fr);
@@ -680,9 +682,12 @@ main{
 }
 .tile strong{
  display:block;
- padding:11px 7px;
- font-size:13px;
- line-height:1.35;
+ padding:14px 9px;
+ font-size:17px;
+ font-weight:800;
+ line-height:1.4;
+ color:#142D65;
+ text-align:center;
 }
 .grid{
  display:grid;
@@ -748,9 +753,7 @@ main{
  gap:12px;
 }
 .catalogPanel{margin-top:17px}
-.shopRight .panel{
- position:static;
-}
+.shopRight .panel{position:static}
 .cartrow{
  display:flex;
  gap:9px;
@@ -798,11 +801,15 @@ th{background:#F0EAFD}
  padding:14px 10px;
  background:linear-gradient(100deg,#6925CE,#7C35E0);
 }
+
 footer{
  background:white;
  margin-top:25px;
  text-align:center;
 }
+.headerDesign,.footerDesign{width:100%;padding:0;line-height:0;overflow:hidden}
+.headerDesign img,.footerDesign img{display:block;width:100%;height:auto}
+.footerDesign{margin-top:20px}
 .floralBottom{line-height:0}
 .floralBottom svg{
  display:block;
@@ -877,6 +884,7 @@ footer{
  .welcome{font-size:20px}
  .tiles,.grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
  .tile img,.tile .placeholder{height:112px}
+ .tile strong{font-size:16px;padding:12px 7px}
  .product img{height:120px}
  .product h3{font-size:13px}
  .product .price{font-size:17px}
@@ -904,10 +912,9 @@ ${admin ? "" : `
 </header>
 <main>${content}</main>
 <footer>
-${floralFooter}
 <div class="footerContent">
 <h3>Haz tus pedidos</h3>
-<p>¡Síguenos en nuestras redes sociales!</p>
+<p>Síguenos en nuestras redes sociales y contáctanos</p>
 <div class="social">
 <a href="https://wa.me/${BR.whatsapp}"
  target="_blank" rel="noopener noreferrer">
@@ -922,13 +929,16 @@ ${floralFooter}
  🎵 TikTok
 </a>
 </div>
+<p class="muted">
+ Teléfono y WhatsApp: +56 9 6628 2007
+</p>
 <p class="footerAddress">📍 Dirección: Nueva Vida, Pan de Azúcar, Coquimbo</p>
-<p class="footerAddress">📞 Contacto: +56 9 6628 2007</p>
 <p class="muted">
  Instagram @comercializadora_brusaam
  · TikTok @com_brusaam
 </p>
 </div>
+${floralFooter}
 </footer>
 </body>
 </html>`, {
@@ -982,8 +992,8 @@ const SHOP = String.raw`
      Todos los productos
     </h2>
     <button class="secondary backButton" id="backHome">
-     ← Volver atrás
-    </button>
+      ← Volver atrás
+     </button>
    </div>
 
    <div id="subTiles" class="tiles"
@@ -992,6 +1002,7 @@ const SHOP = String.raw`
    <div class="filters">
     <label>Categoría
      <select id="filterCategory"></select>
+
     </label>
     <label>Subcategoría
      <select id="filterSub"></select>
@@ -1003,6 +1014,8 @@ const SHOP = String.raw`
   </section>
 
  </div>
+
+
 </div>
 
 <div class="shopBottom">
@@ -1041,111 +1054,111 @@ const SHOP = String.raw`
   <div class="scroll">
    <table>
     <thead>
-    <tr>
+     <tr>
       <th>Modalidad o zona</th>
       <th>Tarifa</th>
-    </tr>
+     </tr>
     </thead>
     <tbody>
-    <tr>
+     <tr>
       <td>Retiro</td>
       <td><strong>Gratis</strong></td>
-    </tr>
-    <tr>
-      <td>Pan de Azúcar (excluye Cruz de Caña)</td>
+     </tr>
+     <tr>
+      <td>Pan de Azúcar</td>
       <td><strong>Gratis</strong></td>
-    </tr>
-    <tr>
+     </tr>
+     <tr>
       <td>La Serena</td>
       <td>$2.000</td>
-    </tr>
-    <tr>
+     </tr>
+     <tr>
       <td>Coquimbo</td>
       <td>$1.500</td>
-    </tr>
-    <tr>
-     <td>
+     </tr>
+     <tr>
+      <td>
        La Serena y Coquimbo,
        compras desde $30.000
-     </td>
+      </td>
       <td><strong>Gratis</strong></td>
-    </tr>
-    <tr>
+     </tr>
+     <tr>
       <td>Otras regiones y comunas</td>
       <td>Envío por pagar</td>
-    </tr>
+     </tr>
     </tbody>
    </table>
   </div>
-  <p class="muted">El despacho gratis de Pan de Azúcar se aplica también a direcciones que indiquen Nueva Vida, excepto Cruz de Caña.</p>
  </section>
-</div>
 
-<section class="panel" id="customerPanel">
- <h3>👤 Datos del solicitante</h3>
+ </div>
 
- <label>Nombre y apellido *
-  <input id="customer" maxlength="120">
- </label>
+  <section class="panel" id="customerPanel">
+  <h3>👤 Datos del solicitante</h3>
 
- <label>
-  Modalidad (Retiro o Entrega a Domicilio) *
-  <select id="mode">
-   <option value="delivery">
-    Entrega a Domicilio
-   </option>
-   <option value="pickup">
-    Retiro
-   </option>
-  </select>
- </label>
-
- <div id="deliveryFields">
-  <label>Dirección *
-   <input id="address" maxlength="220"
-    placeholder="Calle, número y referencia">
+  <label>Nombre y apellido *
+   <input id="customer" maxlength="120">
   </label>
 
-  <label>Región *
-   <select id="region">
-    <option value="">Selecciona tu región</option>
-    <option>Arica y Parinacota</option>
-    <option>Tarapacá</option>
-    <option>Antofagasta</option>
-    <option>Atacama</option>
-    <option>Coquimbo</option>
-    <option>Valparaíso</option>
-    <option>Metropolitana de Santiago</option>
-    <option>Libertador General Bernardo O'Higgins</option>
-    <option>Maule</option>
-    <option>Ñuble</option>
-    <option>Biobío</option>
-    <option>La Araucanía</option>
-    <option>Los Ríos</option>
-    <option>Los Lagos</option>
-    <option>Aysén del General Carlos Ibáñez del Campo</option>
-    <option>Magallanes y de la Antártica Chilena</option>
+  <label>
+   Modalidad (Retiro o Entrega a Domicilio) *
+   <select id="mode">
+    <option value="delivery">
+     Entrega a Domicilio
+    </option>
+    <option value="pickup">
+     Retiro
+    </option>
    </select>
   </label>
 
-  <label>Comuna *
-   <input id="commune" maxlength="100">
-  </label>
- </div>
+  <div id="deliveryFields">
+   <label>Dirección *
+    <input id="address" maxlength="220"
+     placeholder="Calle, número y referencia">
+   </label>
 
- <p class="notice" id="shippingNotice">
-  Completa tus datos para calcular el despacho.
- </p>
+   <label>Región *
+    <select id="region">
+     <option value="">Selecciona tu región</option>
+     <option>Arica y Parinacota</option>
+     <option>Tarapacá</option>
+     <option>Antofagasta</option>
+     <option>Atacama</option>
+     <option>Coquimbo</option>
+     <option>Valparaíso</option>
+     <option>Metropolitana de Santiago</option>
+     <option>Libertador General Bernardo O'Higgins</option>
+     <option>Maule</option>
+     <option>Ñuble</option>
+     <option>Biobío</option>
+     <option>La Araucanía</option>
+     <option>Los Ríos</option>
+     <option>Los Lagos</option>
+     <option>Aysén del General Carlos Ibáñez del Campo</option>
+     <option>Magallanes y de la Antártica Chilena</option>
+    </select>
+   </label>
 
- <button id="checkout">
-  💬 Enviar pedido por WhatsApp
- </button>
+   <label>Comuna *
+    <input id="commune" maxlength="100">
+   </label>
+  </div>
 
- <p class="muted">
-  Brusaam confirmará disponibilidad,
-  pago y coordinación del pedido.
- </p>
-</section>
+  <p class="notice" id="shippingNotice">
+   Completa tus datos para calcular el despacho.
+  </p>
+
+  <button id="checkout">
+   💬 Enviar pedido por WhatsApp
+  </button>
+
+  <p class="muted">
+   Brusaam confirmará disponibilidad,
+   pago y coordinación del pedido.
+  </p>
+  </section>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -1190,10 +1203,19 @@ function photo(url, alt) {
 }
 
 function decorate(data) {
+
  if (data.logo) {
   $('shopLogo').src = data.logo;
  }
 
+ /*
+  Las ondas florales son SVG incorporados
+  en el encabezado y pie de página.
+
+  El diseño subido en Administración se
+  utiliza como imagen de apoyo en las
+  secciones, sin tapar las ondas.
+ */
  if (data.design) {
   const banner = document.querySelector('.banner');
 
@@ -1382,6 +1404,7 @@ function productCard(product) {
      'Mayor desde ' +
      (product.min_qty || 2) +
      ': ' + money(product.wholesale) +
+
      ' c/u';
    }
   };
@@ -1582,6 +1605,7 @@ function renderSubTiles(categoryName) {
   root.append(makeTile(
    sub.name,
    sub.image,
+
    '📁',
    () => openCategory(categoryName, sub.name)
   ));
@@ -1598,6 +1622,7 @@ function openCategory(category, sub = '') {
  fillSubcategories(sub);
 
  $('catalogTitle').textContent = sub || category;
+ $('backHome').textContent = sub ? '← Volver a la categoría' : '← Volver al inicio';
 
  renderSubTiles(category);
  renderProducts();
@@ -1624,6 +1649,7 @@ function openSection(slug) {
 
  $('catalogTitle').textContent =
   section?.title || 'Productos';
+ $('backHome').textContent = '← Volver al inicio';
 
  renderProducts();
 
@@ -1642,6 +1668,7 @@ function home() {
 
  $('catalogTitle').textContent =
   'Todos los productos';
+ $('backHome').textContent = '← Volver al inicio';
 
  $('subTiles').replaceChildren();
  $('home').classList.remove('hidden');
@@ -1652,25 +1679,6 @@ function home() {
   top: 0,
   behavior: 'smooth'
  });
-}
-
-/* BOTÓN VOLVER ATRÁS */
-
-function goBack() {
- const category = $('filterCategory').value;
- const subcategory = $('filterSub').value;
-
- if (subcategory && category) {
-  openCategory(category);
-  return;
- }
-
- if (currentSection || category) {
-  home();
-  return;
- }
-
- home();
 }
 
 function renderProducts() {
@@ -1743,7 +1751,14 @@ function subtotal() {
  return result;
 }
 
-/* CÁLCULO DE DESPACHO */
+function isPanDeAzucarFree(address) {
+ const value = normalized(address);
+ const excluded = /\bcruz\s+de\s+cana\b/.test(value);
+ return !excluded && (
+  /\bpan\s+de\s+azucar\b/.test(value) ||
+  /\bnueva\s+vida\b/.test(value)
+ );
+}
 
 function shipping() {
  if ($('mode').value === 'pickup') {
@@ -1756,9 +1771,9 @@ function shipping() {
 
  const region = normalized($('region').value);
  const commune = normalized($('commune').value);
- const address = normalized($('address').value);
+ const address = $('address').value;
 
- if (!region || !commune) {
+ if (!region || !commune || !address.trim()) {
   return {
    type: 'pending',
    amount: null,
@@ -1766,35 +1781,8 @@ function shipping() {
   };
  }
 
- const isCruzDeCana =
-  address.includes('cruz de cana') ||
-  commune.includes('cruz de cana');
-
- const isPanDeAzucar =
-  address.includes('pan de azucar') ||
-  address.includes('nueva vida') ||
-  commune.includes('pan de azucar') ||
-  commune.includes('nueva vida');
-
- /*
-  El beneficio de Pan de Azúcar se aplica
-  si la dirección indica Pan de Azúcar
-  o Nueva Vida.
-
-  Cruz de Caña queda excluido.
- */
-
- if (
-  region === 'coquimbo' &&
-  isPanDeAzucar &&
-  !isCruzDeCana
- ) {
-  return {
-   type: 'free',
-   amount: 0,
-   label: 'Gratis',
-   reason: 'pan_de_azucar'
-  };
+ if (region === 'coquimbo' && isPanDeAzucarFree(address)) {
+  return {type:'pan_free', amount:0, label:'Gratis (Pan de Azúcar)'};
  }
 
  const local =
@@ -1804,19 +1792,11 @@ function shipping() {
    commune === 'coquimbo'
   );
 
- /*
-  Cruz de Caña no recibe automáticamente
-  el beneficio de Pan de Azúcar.
-  Se conserva la regla general de despacho
-  según comuna y monto de compra.
- */
-
  if (local && subtotal() >= 30000) {
   return {
    type: 'free',
    amount: 0,
-   label: 'Gratis',
-   reason: 'compra_minima'
+   label: 'Gratis'
   };
  }
 
@@ -1826,6 +1806,7 @@ function shipping() {
  ) {
   return {
    type: 'local',
+
    amount: 2000,
    label: money(2000)
   };
@@ -1848,8 +1829,6 @@ function shipping() {
   label: 'Envío por pagar'
  };
 }
-
-/* CARRITO DE COMPRAS */
 
 function renderCart() {
  const root = $('cartItems');
@@ -2004,9 +1983,9 @@ function renderCart() {
   pending:
    'Completa región y comuna para calcular el despacho.',
   free:
-   delivery.reason === 'pan_de_azucar'
-    ? '¡Despacho gratis en Pan de Azúcar y Nueva Vida! Excluye Cruz de Caña.'
-    : '¡Despacho gratis por compras desde $30.000 en La Serena y Coquimbo!',
+   '¡Despacho gratis en La Serena y Coquimbo!',
+  pan_free:
+   '¡Tu pedido tiene despacho gratis!',
   local:
    'Tarifa de despacho: ' + delivery.label,
   external:
@@ -2016,8 +1995,6 @@ function renderCart() {
  $('shippingNotice').textContent =
   notices[delivery.type];
 }
-
-/* BÚSQUEDA Y FILTROS */
 
 $('search').oninput = () => {
  if ($('search').value.trim()) {
@@ -2030,7 +2007,9 @@ $('search').oninput = () => {
   $('subTiles').replaceChildren();
 
   $('catalogTitle').textContent =
+
    'Resultados de búsqueda';
+  $('backHome').textContent = '← Volver al inicio';
  } else {
   home();
  }
@@ -2048,21 +2027,14 @@ $('filterCategory').onchange = () => {
  renderProducts();
 };
 
-$('filterSub').onchange = () => {
- const category = $('filterCategory').value;
- const subcategory = $('filterSub').value;
-
- $('catalogTitle').textContent =
-  subcategory || category || 'Todos los productos';
-
- renderProducts();
+$('filterSub').onchange = renderProducts;
+$('backHome').onclick = () => {
+ if ($('filterSub').value && $('filterCategory').value && !currentSection) {
+  openCategory($('filterCategory').value);
+ } else {
+  home();
+ }
 };
-
-/* VOLVER ATRÁS */
-
-$('backHome').onclick = goBack;
-
-/* MODALIDAD DE ENTREGA */
 
 $('mode').onchange = () => {
  $('deliveryFields').classList.toggle(
@@ -2077,8 +2049,6 @@ $('region').onchange = renderCart;
 $('commune').oninput = renderCart;
 $('address').oninput = renderCart;
 
-/* CONTINUAR PEDIDO */
-
 $('goCheckout').onclick = () => {
  if (!Object.keys(cart).length) {
   alert('Agrega productos al carrito.');
@@ -2089,8 +2059,6 @@ $('goCheckout').onclick = () => {
   behavior: 'smooth'
  });
 };
-
-/* ENVIAR PEDIDO POR WHATSAPP */
 
 $('checkout').onclick = () => {
  if (!Object.keys(cart).length) {
@@ -2190,8 +2158,6 @@ $('checkout').onclick = () => {
   encodeURIComponent(message);
 };
 
-/* CARGAR CATÁLOGO */
-
 async function loadShop() {
  try {
   const response = await fetch('/api/shop');
@@ -2241,6 +2207,7 @@ const ADMIN = String.raw`
    Cerrar sesión
   </button>
  </div>
+
 
  <div class="adminTabs">
   <button data-tab="products" class="active">
@@ -2442,6 +2409,7 @@ const ADMIN = String.raw`
    <h3>Crear o editar subcategoría</h3>
 
    <form id="subForm">
+
     <input type="hidden" id="sId">
 
     <label>Categoría principal
@@ -2627,177 +2595,27 @@ document.querySelectorAll('[data-tab]')
    openTab(button.dataset.tab);
  });
 
-/* INICIO Y CIERRE DE SESIÓN */
+async function uploadFile(inputId) {
+ const file = $(inputId).files[0];
 
-async function checkSession() {
- try {
-  const result = await api('/api/admin/session');
-
-  if (result.authenticated) {
-   $('loginArea').classList.add('hidden');
-   $('adminArea').classList.remove('hidden');
-
-   await loadAdmin();
-  } else {
-   $('loginArea').classList.remove('hidden');
-   $('adminArea').classList.add('hidden');
-  }
- } catch (error) {
-  $('loginArea').classList.remove('hidden');
-  $('adminArea').classList.add('hidden');
- }
-}
-
-$('loginForm').onsubmit = async event => {
- event.preventDefault();
-
- const password = $('password').value;
-
- try {
-  await api('/api/admin/login', 'POST', {
-   password
-  });
-
-  $('password').value = '';
-
-  message('loginMessage', '');
-
-  await checkSession();
- } catch (error) {
-  message(
-   'loginMessage',
-   error.message
-  );
- }
-};
-
-$('logout').onclick = async () => {
- try {
-  await api('/api/admin/logout', 'POST');
-
-  $('adminArea').classList.add('hidden');
-  $('loginArea').classList.remove('hidden');
-
-  $('password').value = '';
- } catch (error) {
-  alert(error.message);
- }
-};
-
-/* CARGA DE INFORMACIÓN */
-
-async function loadAdmin() {
- try {
-  data = await api('/api/admin/data');
-
-  fillAdminCategories();
-  renderAdminProducts();
-  renderAdminCategories();
-  renderAdminSubcategories();
-  renderAdminSections();
-  renderAdminDesign();
- } catch (error) {
-  alert(
-   'No se pudieron cargar los datos: ' +
-   error.message
-  );
- }
-}
-
-function fillAdminCategories() {
- const productCategory = $('pCategory');
- const subCategory = $('sCategory');
-
- const selectedProduct = productCategory.value;
- const selectedSub = subCategory.value;
-
- productCategory.replaceChildren(
-  new Option('Selecciona una categoría', '')
- );
-
- subCategory.replaceChildren(
-  new Option('Selecciona una categoría', '')
- );
-
- for (const category of data.categories) {
-  productCategory.add(
-   new Option(category.name, category.name)
-  );
-
-  subCategory.add(
-   new Option(category.name, category.id)
-  );
- }
-
- productCategory.value = selectedProduct;
- subCategory.value = selectedSub;
-
- fillProductSubcategories();
-}
-
-function fillProductSubcategories(selected = '') {
- const category = data.categories.find(
-  item => item.name === $('pCategory').value
- );
-
- const select = $('pSub');
-
- select.replaceChildren(
-  new Option('Sin subcategoría', '')
- );
-
- if (category) {
-  for (const sub of data.subcategories.filter(
-   item => Number(item.category_id) ===
-    Number(category.id)
-  )) {
-   select.add(
-    new Option(sub.name, sub.name)
-   );
-  }
+ if (!file) {
+  throw Error('Selecciona una fotografía.');
  }
 
  if (
-  [...select.options].some(
-   option => option.value === selected
-  )
+  file.size === 0 ||
+  file.size > 5 * 1024 * 1024
  ) {
-  select.value = selected;
+  throw Error('Máximo 5 MB por fotografía.');
  }
 
- updatePaperFields();
-}
+ if (![
 
-function updatePaperFields() {
- const isPaper =
-  $('pCategory').value === 'Papelería' &&
-  $('pSub').value === 'Papel higiénico';
-
- $('paperFields').classList.toggle(
-  'hidden',
-  !isPaper
- );
-}
-
-$('pCategory').onchange = () => {
- fillProductSubcategories();
-};
-
-$('pSub').onchange = updatePaperFields;
-
-/* SUBIR FOTOGRAFÍAS A CLOUDINARY */
-
-async function uploadImage(fileInput, urlInput) {
- const file = $(fileInput).files[0];
-
- if (!file) {
-  alert('Selecciona una fotografía.');
-  return;
- }
-
- if (file.size > 8 * 1024 * 1024) {
-  alert('La imagen no puede superar 8 MB.');
-  return;
+  'image/jpeg',
+  'image/png',
+  'image/webp'
+ ].includes(file.type)) {
+  throw Error('Solo JPG, PNG o WebP.');
  }
 
  const form = new FormData();
@@ -2817,685 +2635,374 @@ async function uploadImage(fileInput, urlInput) {
 
  if (!response.ok) {
   throw Error(
-   result.error ||
-   'No se pudo subir la fotografía.'
+   result.error || 'Error al subir imagen'
   );
  }
-
- if (!result.url) {
-  throw Error('Cloudinary no devolvió una URL.');
- }
-
- $(urlInput).value = result.url;
 
  return result.url;
 }
 
-$('uploadProduct').onclick = async () => {
- try {
-  const button = $('uploadProduct');
-  button.disabled = true;
+function fillCategorySelects() {
+ const product = $('pCategory');
+ const sub = $('sCategory');
 
-  await uploadImage('pFile', 'pImage');
+ const previousProduct = product.value;
+ const previousSub = sub.value;
 
-  message(
-   'productMessage',
-   'Fotografía subida correctamente.'
+ product.replaceChildren();
+ sub.replaceChildren();
+
+ for (const category of data.categories) {
+  product.add(
+   new Option(category.name, category.name)
   );
- } catch (error) {
-  message(
-   'productMessage',
-   error.message
+
+  sub.add(
+   new Option(category.name, String(category.id))
   );
- } finally {
-  $('uploadProduct').disabled = false;
  }
-};
 
-/* LIMPIAR FORMULARIO DE PRODUCTO */
+ if ([...product.options].some(
+  option => option.value === previousProduct
+ )) {
+  product.value = previousProduct;
+ }
 
-function clearProductForm() {
+ if ([...sub.options].some(
+  option => option.value === previousSub
+ )) {
+  sub.value = previousSub;
+ }
+
+ fillProductSubs();
+}
+
+function fillProductSubs(selected = '') {
+ const category = data.categories.find(
+  item => item.name === $('pCategory').value
+ );
+
+ const select = $('pSub');
+
+ select.replaceChildren(
+  new Option('Sin subcategoría', '')
+ );
+
+ if (category) {
+  for (const sub of data.subcategories.filter(
+   item => Number(item.category_id) ===
+    Number(category.id)
+  )) {
+   select.add(new Option(sub.name, sub.name));
+  }
+ }
+
+ if (
+  selected &&
+  ![...select.options].some(
+   option => option.value === selected
+  )
+ ) {
+  select.add(new Option(selected, selected));
+ }
+
+ select.value = selected || '';
+ updatePaperFields();
+}
+
+function updatePaperFields() {
+ const paper =
+  $('pCategory').value === 'Papelería' &&
+  $('pSub').value === 'Papel higiénico';
+
+ $('paperFields').classList.toggle(
+  'hidden',
+  !paper
+ );
+}
+
+$('pCategory').onchange = () =>
+ fillProductSubs();
+
+$('pSub').onchange = updatePaperFields;
+
+function adminRow(label, image, edit, remove) {
+ const row = document.createElement('div');
+ row.className = 'adminRow';
+
+ if (image) {
+  const photo = document.createElement('img');
+  photo.src = image;
+  photo.alt = '';
+  row.append(photo);
+ }
+
+ const title = document.createElement('strong');
+ title.textContent = label;
+ row.append(title);
+
+ const editButton = document.createElement('button');
+ editButton.textContent = 'Editar';
+ editButton.onclick = edit;
+ row.append(editButton);
+
+ if (remove) {
+  const removeButton =
+   document.createElement('button');
+
+  removeButton.textContent = 'Eliminar';
+  removeButton.className = 'danger';
+  removeButton.onclick = remove;
+
+  row.append(removeButton);
+ }
+
+ return row;
+}
+
+function clearProduct() {
  $('productForm').reset();
 
  $('pId').value = '';
  $('pImage').value = '';
-
  $('pMin').value = '2';
- $('pStock').value = '0';
-
  $('pMangaPrice').value = '0';
  $('pPacksPerManga').value = '0';
-
  $('pActive').checked = true;
 
- fillProductSubcategories();
-
- message('productMessage', '');
-
- window.scrollTo({
-  top: 0,
-  behavior: 'smooth'
- });
+ fillProductSubs();
 }
 
-$('clearProduct').onclick = clearProductForm;
+$('clearProduct').onclick = clearProduct;
 
-/* EDITAR PRODUCTO */
+function renderProducts() {
+ const root = $('productList');
+ root.replaceChildren();
 
-function editProduct(id) {
- const product = data.products.find(
-  item => Number(item.id) === Number(id)
- );
+ for (const product of data.products) {
+  const edit = () => {
+   $('pId').value = product.id;
+   $('pName').value = product.name || '';
+   $('pDescription').value =
+    product.description || '';
 
- if (!product) {
-  alert('No se encontró el producto.');
-  return;
+   $('pRetail').value = product.retail;
+   $('pWholesale').value = product.wholesale;
+   $('pMin').value = product.min_qty || 2;
+   $('pStock').value = product.stock;
+   $('pImage').value = product.image || '';
+
+   if (![...$('pCategory').options].some(
+    option => option.value === product.category
+   )) {
+    $('pCategory').add(
+     new Option(
+      product.category,
+      product.category
+     )
+    );
+   }
+
+   $('pCategory').value = product.category;
+
+   fillProductSubs(
+    product.subcategory || ''
+   );
+
+   $('pMangaPrice').value =
+    product.manga_price || 0;
+
+   $('pPacksPerManga').value =
+    product.packs_per_manga || 0;
+
+   $('pFeatured').checked =
+    !!product.destacados;
+
+   $('pSavings').checked =
+    !!product.pack_ahorro;
+
+   $('pOffers').checked =
+    !!product.ofertas;
+
+   $('pPyme').checked =
+    !!product.box_pyme;
+
+   $('pActive').checked =
+    !!product.active;
+
+   openTab('products');
+
+   window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+   });
+  };
+
+  const remove = async () => {
+   if (!confirm(
+    '¿Eliminar ' + product.name + '?'
+   )) {
+    return;
+   }
+
+   try {
+    await api(
+     '/api/admin/products/' + product.id,
+     'DELETE',
+     {}
+    );
+
+    await refresh();
+   } catch (error) {
+    alert(error.message);
+   }
+  };
+
+  root.append(adminRow(
+   product.name +
+    ' | $' + product.retail +
+    ' | Stock: ' + product.stock,
+   product.image,
+   edit,
+   remove
+  ));
  }
-
- openTab('products');
-
- $('pId').value = product.id;
- $('pName').value = product.name || '';
-
- $('pCategory').value =
-  product.category || '';
-
- fillProductSubcategories(
-  product.subcategory || ''
- );
-
- $('pDescription').value =
-  product.description || '';
-
- $('pRetail').value =
-  Number(product.retail) || 0;
-
- $('pWholesale').value =
-  Number(product.wholesale) || 0;
-
- $('pMin').value =
-  Number(product.min_qty) || 2;
-
- $('pStock').value =
-  Number(product.stock) || 0;
-
- $('pMangaPrice').value =
-  Number(product.manga_price) || 0;
-
- $('pPacksPerManga').value =
-  Number(product.packs_per_manga) || 0;
-
- $('pImage').value =
-  product.image || '';
-
- $('pFeatured').checked =
-  Number(product.destacados) === 1;
-
- $('pSavings').checked =
-  Number(product.pack_ahorro) === 1;
-
- $('pOffers').checked =
-  Number(product.ofertas) === 1;
-
- $('pPyme').checked =
-  Number(product.box_pyme) === 1;
-
- $('pActive').checked =
-  Number(product.active) === 1;
-
- updatePaperFields();
-
- message(
-  'productMessage',
-  'Editando: ' + product.name
- );
-
- $('productForm').scrollIntoView({
-  behavior: 'smooth'
- });
 }
 
-/* GUARDAR PRODUCTO */
+$('uploadProduct').onclick = async () => {
+ try {
+  $('pImage').value =
+   await uploadFile('pFile');
+
+  message(
+   'productMessage',
+   'Fotografía subida. Guarda el producto.'
+  );
+ } catch (error) {
+  message('productMessage', error.message);
+ }
+};
 
 $('productForm').onsubmit = async event => {
  event.preventDefault();
 
- const name = $('pName').value.trim();
- const category = $('pCategory').value;
+ const id = $('pId').value;
 
- if (!name || !category) {
-  alert('Completa nombre y categoría.');
-  return;
- }
-
- const isPaper =
-  category === 'Papelería' &&
+ const paper =
+  $('pCategory').value === 'Papelería' &&
   $('pSub').value === 'Papel higiénico';
 
- const payload = {
-  id: $('pId').value
-   ? Number($('pId').value)
-   : null,
-
-  name,
-
-  category,
-
+ const product = {
+  name: $('pName').value.trim(),
+  category: $('pCategory').value,
   subcategory: $('pSub').value,
-
-  description:
-   $('pDescription').value.trim(),
-
+  description: $('pDescription').value,
   retail: Number($('pRetail').value),
-
-  wholesale:
-   Number($('pWholesale').value),
-
+  wholesale: Number($('pWholesale').value),
   min_qty: Number($('pMin').value),
-
   stock: Number($('pStock').value),
-
   image: $('pImage').value.trim(),
 
-  manga_price: isPaper
+  manga_price: paper
    ? Number($('pMangaPrice').value)
    : 0,
 
-  packs_per_manga: isPaper
+  packs_per_manga: paper
    ? Number($('pPacksPerManga').value)
    : 0,
 
-  destacados:
-   $('pFeatured').checked ? 1 : 0,
-
-  pack_ahorro:
-   $('pSavings').checked ? 1 : 0,
-
-  ofertas:
-   $('pOffers').checked ? 1 : 0,
-
-  box_pyme:
-   $('pPyme').checked ? 1 : 0,
-
-  active:
-   $('pActive').checked ? 1 : 0
+  destacados: $('pFeatured').checked,
+  pack_ahorro: $('pSavings').checked,
+  ofertas: $('pOffers').checked,
+  box_pyme: $('pPyme').checked,
+  active: $('pActive').checked
  };
-
- if (
-  payload.retail < 0 ||
-  payload.wholesale < 0 ||
-  payload.stock < 0 ||
-  payload.min_qty < 1 ||
-  payload.manga_price < 0 ||
-  payload.packs_per_manga < 0
- ) {
-  alert('Revisa los precios y cantidades.');
-  return;
- }
 
  try {
   await api(
-   '/api/admin/product',
-   'POST',
-   payload
+   '/api/admin/products' +
+    (id ? '/' + id : ''),
+   id ? 'PUT' : 'POST',
+   product
   );
+
+  clearProduct();
+  await refresh();
 
   message(
    'productMessage',
    'Producto guardado correctamente.'
   );
-
-  await loadAdmin();
-
-  $('pId').value = '';
  } catch (error) {
-  message(
-   'productMessage',
-   error.message
-  );
+  message('productMessage', error.message);
  }
 };
 
-/* ELIMINAR PRODUCTO */
-
-async function deleteProduct(id) {
- const product = data.products.find(
-  item => Number(item.id) === Number(id)
- );
-
- if (!product) return;
-
- const confirmed = confirm(
-  '¿Eliminar definitivamente "' +
-  product.name +
-  '"?'
- );
-
- if (!confirmed) return;
-
- try {
-  await api(
-   '/api/admin/product',
-   'DELETE',
-   { id }
-  );
-
-  await loadAdmin();
- } catch (error) {
-  alert(error.message);
- }
-}
-
-/* LISTADO DE PRODUCTOS */
-
-function renderAdminProducts() {
- const root = $('productList');
- root.replaceChildren();
-
- if (!data.products.length) {
-  root.append(
-   document.createTextNode(
-    'Todavía no hay productos registrados.'
-   )
-  );
-
-  return;
- }
-
- for (const product of data.products) {
-  const row = document.createElement('div');
-  row.className = 'adminRow';
-
-  if (product.image) {
-   const img = document.createElement('img');
-   img.src = product.image;
-   img.alt = product.name;
-   row.append(img);
-  }
-
-  const details = document.createElement('div');
-  details.style.flex = '1';
-
-  const name = document.createElement('strong');
-  name.textContent = product.name;
-
-  const info = document.createElement('div');
-  info.className = 'muted';
-
-  info.textContent =
-   product.category +
-   (product.subcategory
-    ? ' / ' + product.subcategory
-    : '') +
-   ' · Detalle: $' +
-   Number(product.retail).toLocaleString('es-CL') +
-   ' · Stock: ' + product.stock +
-   (Number(product.active) === 1
-    ? ' · Visible'
-    : ' · Oculto');
-
-  details.append(name, info);
-  row.append(details);
-
-  const edit = document.createElement('button');
-  edit.textContent = 'Editar';
-  edit.className = 'secondary small';
-
-  edit.onclick = () =>
-   editProduct(product.id);
-
-  const remove = document.createElement('button');
-  remove.textContent = 'Eliminar';
-  remove.className = 'danger small';
-
-  remove.onclick = () =>
-   deleteProduct(product.id);
-
-  row.append(edit, remove);
-  root.append(row);
- }
-}
-
-/* ADMINISTRACIÓN DE CATEGORÍAS */
-
-function clearCategoryForm() {
- $('categoryForm').reset();
- $('cId').value = '';
- $('cImage').value = '';
- $('cPosition').value = '0';
- message('categoryMessage', '');
-}
-
-$('clearCategory').onclick = clearCategoryForm;
-
-$('uploadCategory').onclick = async () => {
- const button = $('uploadCategory');
- button.disabled = true;
-
- try {
-  await uploadImage('cFile', 'cImage');
-  message('categoryMessage', 'Fotografía subida correctamente.');
- } catch (error) {
-  message('categoryMessage', error.message);
- } finally {
-  button.disabled = false;
- }
-};
-
-$('categoryForm').onsubmit = async event => {
- event.preventDefault();
-
- const payload = {
-  id: $('cId').value ? Number($('cId').value) : null,
-  name: $('cName').value.trim(),
-  image: $('cImage').value.trim(),
-  position: Number($('cPosition').value)
- };
-
- if (!payload.name) {
-  alert('Ingresa el nombre de la categoría.');
-  return;
- }
-
- try {
-  await api('/api/admin/category', 'POST', payload);
-  clearCategoryForm();
-  await loadAdmin();
-  message('categoryMessage', 'Categoría guardada correctamente.');
- } catch (error) {
-  message('categoryMessage', error.message);
- }
-};
-
-function editCategory(id) {
- const category = data.categories.find(
-  item => Number(item.id) === Number(id)
- );
-
- if (!category) return;
-
- openTab('categories');
-
- $('cId').value = category.id;
- $('cName').value = category.name;
- $('cImage').value = category.image || '';
- $('cPosition').value = category.position || 0;
-
- $('categoryForm').scrollIntoView({
-  behavior: 'smooth'
- });
-}
-
-async function deleteCategory(id) {
- const category = data.categories.find(
-  item => Number(item.id) === Number(id)
- );
-
- if (!category) return;
-
- if (!confirm(
-  '¿Eliminar la categoría "' + category.name +
-  '"? Revisa primero sus productos y subcategorías.'
- )) return;
-
- try {
-  await api('/api/admin/category', 'DELETE', { id });
-  await loadAdmin();
- } catch (error) {
-  alert(error.message);
- }
-}
-
-function renderAdminCategories() {
- const root = $('categoryList');
- root.replaceChildren();
-
- for (const category of data.categories) {
-  const row = document.createElement('div');
-  row.className = 'adminRow';
-
-  if (category.image) {
-   const img = document.createElement('img');
-   img.src = category.image;
-   img.alt = category.name;
-   row.append(img);
-  }
-
-  const name = document.createElement('strong');
-  name.textContent = category.name;
-  row.append(name);
-
-  const edit = document.createElement('button');
-  edit.textContent = 'Editar';
-  edit.className = 'secondary small';
-  edit.onclick = () => editCategory(category.id);
-
-  const remove = document.createElement('button');
-  remove.textContent = 'Eliminar';
-  remove.className = 'danger small';
-  remove.onclick = () => deleteCategory(category.id);
-
-  row.append(edit, remove);
-  root.append(row);
- }
-}
-
-/* ADMINISTRACIÓN DE SUBCATEGORÍAS */
-
-function clearSubForm() {
- $('subForm').reset();
- $('sId').value = '';
- $('sImage').value = '';
- $('sPosition').value = '0';
-}
-
-$('clearSub').onclick = clearSubForm;
-
-$('uploadSub').onclick = async () => {
- const button = $('uploadSub');
- button.disabled = true;
-
- try {
-  await uploadImage('sFile', 'sImage');
-  alert('Fotografía subida correctamente.');
- } catch (error) {
-  alert(error.message);
- } finally {
-  button.disabled = false;
- }
-};
-
-$('subForm').onsubmit = async event => {
- event.preventDefault();
-
- const payload = {
-  id: $('sId').value ? Number($('sId').value) : null,
-  category_id: Number($('sCategory').value),
-  name: $('sName').value.trim(),
-  image: $('sImage').value.trim(),
-  position: Number($('sPosition').value)
- };
-
- if (!payload.category_id || !payload.name) {
-  alert('Selecciona una categoría e ingresa el nombre.');
-  return;
- }
-
- try {
-  await api('/api/admin/subcategory', 'POST', payload);
-  clearSubForm();
-  await loadAdmin();
-  alert('Subcategoría guardada correctamente.');
- } catch (error) {
-  alert(error.message);
- }
-};
-
-function editSubcategory(id) {
- const sub = data.subcategories.find(
-  item => Number(item.id) === Number(id)
- );
-
- if (!sub) return;
-
- openTab('subs');
-
- $('sId').value = sub.id;
- $('sCategory').value = sub.category_id;
- $('sName').value = sub.name;
- $('sImage').value = sub.image || '';
- $('sPosition').value = sub.position || 0;
-
- $('subForm').scrollIntoView({
-  behavior: 'smooth'
- });
-}
-
-async function deleteSubcategory(id) {
- const sub = data.subcategories.find(
-  item => Number(item.id) === Number(id)
- );
-
- if (!sub) return;
-
- if (!confirm(
-  '¿Eliminar la subcategoría "' + sub.name + '"?'
- )) return;
-
- try {
-  await api('/api/admin/subcategory', 'DELETE', { id });
-  await loadAdmin();
- } catch (error) {
-  alert(error.message);
- }
-}
-
-function renderAdminSubcategories() {
- const root = $('subList');
- root.replaceChildren();
-
- for (const sub of data.subcategories) {
-  const row = document.createElement('div');
-  row.className = 'adminRow';
-
-  if (sub.image) {
-   const img = document.createElement('img');
-   img.src = sub.image;
-   img.alt = sub.name;
-   row.append(img);
-  }
-
-  const category = data.categories.find(
-   item => Number(item.id) === Number(sub.category_id)
-  );
-
-  const details = document.createElement('div');
-  details.style.flex = '1';
-
-  const name = document.createElement('strong');
-  name.textContent = sub.name;
-
-  const parent = document.createElement('div');
-  parent.className = 'muted';
-  parent.textContent = category
-   ? 'Categoría: ' + category.name
-   : 'Categoría no encontrada';
-
-  details.append(name, parent);
-  row.append(details);
-
-  const edit = document.createElement('button');
-  edit.textContent = 'Editar';
-  edit.className = 'secondary small';
-  edit.onclick = () => editSubcategory(sub.id);
-
-  const remove = document.createElement('button');
-  remove.textContent = 'Eliminar';
-  remove.className = 'danger small';
-  remove.onclick = () => deleteSubcategory(sub.id);
-
-  row.append(edit, remove);
-  root.append(row);
- }
-}
-
-/* SECCIONES PROMOCIONALES */
-
-function renderAdminSections() {
+function renderSections() {
  const root = $('sectionList');
  root.replaceChildren();
 
  for (const section of data.sections) {
-  const panel = document.createElement('div');
-  panel.className = 'panel';
-  panel.style.marginBottom = '12px';
+  const box = document.createElement('div');
+  box.className = 'adminRow';
 
   const title = document.createElement('h3');
   title.textContent = section.title;
-  panel.append(title);
+  box.append(title);
 
   if (section.image) {
-   const preview = document.createElement('img');
-   preview.src = section.image;
-   preview.alt = section.title;
-   preview.className = 'adminPhoto';
-   panel.append(preview);
+   const image = document.createElement('img');
+   image.src = section.image;
+   image.alt = '';
+   box.append(image);
   }
-
-  const label = document.createElement('label');
-  label.textContent = 'Nombre de la sección';
-
-  const titleInput = document.createElement('input');
-  titleInput.value = section.title;
-  titleInput.maxLength = 100;
-  label.append(titleInput);
 
   const file = document.createElement('input');
   file.type = 'file';
-  file.accept = 'image/png,image/jpeg,image/webp';
+  file.accept =
+   'image/jpeg,image/png,image/webp';
 
-  const imageLabel = document.createElement('label');
-  imageLabel.textContent = 'URL de fotografía';
+  const url = document.createElement('input');
+  url.type = 'url';
+  url.value = section.image || '';
+  url.placeholder = 'URL de fotografía';
 
-  const imageInput = document.createElement('input');
-  imageInput.type = 'url';
-  imageInput.value = section.image || '';
-  imageLabel.append(imageInput);
+  const uploadButton =
+   document.createElement('button');
 
-  const upload = document.createElement('button');
-  upload.textContent = 'Subir fotografía';
-  upload.type = 'button';
+  uploadButton.textContent = 'Subir fotografía';
 
-  upload.onclick = async () => {
-   if (!file.files[0]) {
-    alert('Selecciona una fotografía.');
-    return;
-   }
-
-   upload.disabled = true;
-
+  uploadButton.onclick = async () => {
    try {
+    if (!file.files[0]) {
+     throw Error('Selecciona una fotografía.');
+    }
+
     const form = new FormData();
     form.append('file', file.files[0]);
 
-    const response = await fetch('/api/admin/upload', {
-     method: 'POST',
-     credentials: 'same-origin',
-     body: form
-    });
+    const response = await fetch(
+     '/api/admin/upload',
+     {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: form
+     }
+    );
 
     const result = await response.json();
 
     if (!response.ok) {
-     throw Error(result.error || 'Error al subir imagen');
+     throw Error(result.error);
     }
 
-    imageInput.value = result.url;
-    alert('Fotografía subida. Presiona Guardar sección.');
+    url.value = result.url;
+
+    alert(
+     'Fotografía subida. Presiona Guardar sección.'
+    );
    } catch (error) {
     alert(error.message);
-   } finally {
-    upload.disabled = false;
    }
   };
 
@@ -3504,72 +3011,283 @@ function renderAdminSections() {
 
   save.onclick = async () => {
    try {
-    await api('/api/admin/section', 'POST', {
-     slug: section.slug,
-     title: titleInput.value.trim(),
-     image: imageInput.value.trim()
-    });
 
-    await loadAdmin();
-    alert('Sección actualizada correctamente.');
+    await api(
+     '/api/admin/sections/' + section.slug,
+     'PUT',
+     { image: url.value.trim() }
+    );
+
+    await refresh();
+    alert('Sección actualizada.');
    } catch (error) {
     alert(error.message);
    }
   };
 
-  const controls = document.createElement('div');
-  controls.className = 'flex';
-  controls.append(upload, save);
+  box.append(
+   file,
+   uploadButton,
+   url,
+   save
+  );
 
-  panel.append(label, file, imageLabel, controls);
-  root.append(panel);
+  root.append(box);
  }
 }
 
-/* LOGO Y DISEÑO */
+function clearCategory() {
+ $('categoryForm').reset();
 
-function renderAdminDesign() {
- $('logoUrl').value = data.logo || '';
- $('logoPreview').src = data.logo || '';
-
- $('designUrl').value = data.design || '';
+ $('cId').value = '';
+ $('cImage').value = '';
+ $('cPosition').value = '0';
 }
 
-$('uploadLogo').onclick = async () => {
- const button = $('uploadLogo');
- button.disabled = true;
+$('clearCategory').onclick = clearCategory;
+
+function renderCategories() {
+ const root = $('categoryList');
+ root.replaceChildren();
+
+ for (const category of data.categories) {
+  root.append(adminRow(
+   category.name,
+   category.image,
+
+   () => {
+    $('cId').value = category.id;
+    $('cName').value = category.name;
+    $('cImage').value = category.image || '';
+    $('cPosition').value =
+     category.position || 0;
+
+    openTab('categories');
+
+    window.scrollTo({
+     top: 0,
+     behavior: 'smooth'
+    });
+   },
+
+   async () => {
+    if (!confirm('¿Eliminar categoría?')) {
+     return;
+    }
+
+    try {
+     await api(
+      '/api/admin/categories/' + category.id,
+      'DELETE',
+      {}
+     );
+
+     await refresh();
+    } catch (error) {
+     alert(error.message);
+    }
+   }
+  ));
+ }
+}
+
+$('uploadCategory').onclick = async () => {
+ try {
+  $('cImage').value =
+   await uploadFile('cFile');
+
+  message(
+   'categoryMessage',
+   'Fotografía subida. Guarda la categoría.'
+  );
+ } catch (error) {
+  message('categoryMessage', error.message);
+ }
+};
+
+$('categoryForm').onsubmit = async event => {
+ event.preventDefault();
+
+ const id = $('cId').value;
 
  try {
-  const url = await uploadImage('logoFile', 'logoUrl');
-  $('logoPreview').src = url;
-  alert('Logo subido. Presiona Guardar logo.');
+  await api(
+   '/api/admin/categories' +
+    (id ? '/' + id : ''),
+   id ? 'PUT' : 'POST',
+   {
+    name: $('cName').value.trim(),
+    image: $('cImage').value.trim(),
+    position: Number($('cPosition').value)
+   }
+  );
+
+  clearCategory();
+  await refresh();
+
+  message(
+   'categoryMessage',
+   'Categoría guardada.'
+  );
  } catch (error) {
-  alert(error.message);
- } finally {
-  button.disabled = false;
+  message('categoryMessage', error.message);
+ }
+};
+
+function clearSub() {
+ $('subForm').reset();
+
+ $('sId').value = '';
+ $('sImage').value = '';
+ $('sPosition').value = '0';
+}
+
+$('clearSub').onclick = clearSub;
+
+function renderSubs() {
+ const root = $('subList');
+ root.replaceChildren();
+
+ for (const sub of data.subcategories) {
+  const category = data.categories.find(
+   item => Number(item.id) ===
+    Number(sub.category_id)
+  );
+
+  root.append(adminRow(
+   (category?.name || 'Categoría') +
+    ' › ' + sub.name,
+   sub.image,
+
+   () => {
+    $('sId').value = sub.id;
+    $('sCategory').value =
+     String(sub.category_id);
+
+    $('sName').value = sub.name;
+    $('sImage').value = sub.image || '';
+    $('sPosition').value =
+     sub.position || 0;
+
+    openTab('subs');
+
+    window.scrollTo({
+     top: 0,
+     behavior: 'smooth'
+    });
+   },
+
+   async () => {
+    if (!confirm(
+     '¿Eliminar subcategoría?'
+    )) {
+     return;
+    }
+
+    try {
+     await api(
+      '/api/admin/subcategories/' + sub.id,
+      'DELETE',
+      {}
+     );
+
+     await refresh();
+    } catch (error) {
+     alert(error.message);
+    }
+   }
+  ));
+ }
+}
+
+$('uploadSub').onclick = async () => {
+ try {
+  $('sImage').value =
+   await uploadFile('sFile');
+
+  message(
+   'subMessage',
+   'Fotografía subida. Guarda la subcategoría.'
+  );
+ } catch (error) {
+  message('subMessage', error.message);
+ }
+
+};
+
+$('subForm').onsubmit = async event => {
+ event.preventDefault();
+
+ const id = $('sId').value;
+
+ try {
+  await api(
+   '/api/admin/subcategories' +
+    (id ? '/' + id : ''),
+   id ? 'PUT' : 'POST',
+   {
+    category_id:
+     Number($('sCategory').value),
+
+    name: $('sName').value.trim(),
+    image: $('sImage').value.trim(),
+    position: Number($('sPosition').value)
+   }
+  );
+
+  clearSub();
+  await refresh();
+
+  message(
+   'subMessage',
+   'Subcategoría guardada.'
+  );
+ } catch (error) {
+  message('subMessage', error.message);
+ }
+};
+
+$('uploadLogo').onclick = async () => {
+ try {
+  const url = await uploadFile('logoFile');
+
+  $('logoUrl').value = url;
+  $('logoPreview').src = url;
+
+  message(
+   'designMessage',
+   'Logo subido. Presiona Guardar logo.'
+  );
+ } catch (error) {
+  message('designMessage', error.message);
  }
 };
 
 $('saveLogo').onclick = async () => {
  try {
-  await api('/api/admin/setting', 'POST', {
-   key: 'logo',
-   value: $('logoUrl').value.trim()
-  });
+  await api(
+   '/api/admin/settings/logo',
+   'PUT',
+   {
+    value: $('logoUrl').value.trim()
+   }
+  );
 
-  await loadAdmin();
-  alert('Logo guardado correctamente.');
+  await refresh();
+
+  message(
+   'designMessage',
+   'Logo guardado.'
+  );
  } catch (error) {
-  alert(error.message);
+  message('designMessage', error.message);
  }
 };
 
 $('uploadDesign').onclick = async () => {
- const button = $('uploadDesign');
- button.disabled = true;
-
  try {
-  await uploadImage('designFile', 'designUrl');
+  $('designUrl').value =
+   await uploadFile('designFile');
 
   message(
    'designMessage',
@@ -3577,23 +3295,24 @@ $('uploadDesign').onclick = async () => {
   );
  } catch (error) {
   message('designMessage', error.message);
- } finally {
-  button.disabled = false;
  }
 };
 
 $('saveDesign').onclick = async () => {
  try {
-  await api('/api/admin/setting', 'POST', {
-   key: 'design',
-   value: $('designUrl').value.trim()
-  });
+  await api(
+   '/api/admin/settings/design',
+   'PUT',
+   {
+    value: $('designUrl').value.trim()
+   }
+  );
 
-  await loadAdmin();
+  await refresh();
 
   message(
    'designMessage',
-   'Diseño guardado correctamente.'
+   'Diseño guardado.'
   );
  } catch (error) {
   message('designMessage', error.message);
@@ -3601,1082 +3320,1119 @@ $('saveDesign').onclick = async () => {
 };
 
 $('removeDesign').onclick = async () => {
- if (!confirm('¿Quitar el diseño adicional?')) return;
+ if (!confirm(
+  '¿Quitar la imagen adicional?'
+ )) {
+  return;
+ }
 
  try {
-  await api('/api/admin/setting', 'POST', {
-   key: 'design',
-   value: ''
-  });
+  await api(
+   '/api/admin/settings/design',
+   'PUT',
+   { value: '' }
+  );
 
-  await loadAdmin();
+  await refresh();
 
   message(
    'designMessage',
-   'Diseño adicional eliminado.'
+   'Imagen adicional retirada.'
   );
  } catch (error) {
   message('designMessage', error.message);
  }
 };
 
-/* INICIAR PANEL DE ADMINISTRACIÓN */
+async function refresh() {
+ data = await api('/api/admin/data');
 
-checkSession();
+ $('logoUrl').value = data.logo || '';
+ $('logoPreview').src = data.logo || '';
+ $('shopLogo').src = data.logo || '';
+ $('designUrl').value = data.design || '';
+
+ fillCategorySelects();
+
+ renderProducts();
+ renderSections();
+ renderCategories();
+ renderSubs();
+}
+
+$('loginForm').onsubmit = async event => {
+ event.preventDefault();
+
+ try {
+  await api(
+   '/api/admin/login',
+   'POST',
+   {
+    password: $('password').value
+   }
+  );
+
+  $('password').value = '';
+  message('loginMessage', '');
+
+  await startAdmin();
+ } catch (error) {
+  message('loginMessage', error.message);
+ }
+};
+
+$('logout').onclick = async () => {
+ await api(
+  '/api/admin/logout',
+  'POST',
+  {}
+ );
+
+ await startAdmin();
+};
+
+async function startAdmin() {
+ try {
+  const session = await api(
+   '/api/admin/session'
+  );
+
+  $('loginArea').classList.toggle(
+   'hidden',
+   session.authenticated
+  );
+
+  $('adminArea').classList.toggle(
+   'hidden',
+   !session.authenticated
+  );
+
+  if (session.authenticated) {
+   await refresh();
+  }
+ } catch (error) {
+  message('loginMessage', error.message);
+ }
+
+}
+
+startAdmin();
 </script>`;
-
-/* FUNCIONES DEL SERVIDOR */
 
 /* VALIDACIÓN DE DATOS */
 
-function cleanText(value, maximum = 200) {
- return String(value ?? '').trim().slice(0, maximum);
-}
-
-function cleanNumber(value, minimum = 0) {
- const number = Number(value);
-
- if (
-  !Number.isSafeInteger(number) ||
-  number < minimum
- ) {
-  throw Error('Número inválido.');
- }
-
- return number;
-}
-
-function validateImage(value) {
- const url = cleanText(value, 1500);
-
- if (!validImage(url)) {
-  throw Error('URL de imagen inválida.');
- }
-
- return url;
-}
-
-async function readJSON(request) {
- const contentType =
-  request.headers.get('Content-Type') || '';
-
- if (!contentType.includes('application/json')) {
-  throw Error('Se requiere contenido JSON.');
- }
-
- const body = await request.text();
-
- if (body.length > 100000) {
-  throw Error('Solicitud demasiado grande.');
- }
-
- return JSON.parse(body);
-}
-
-/* AUTENTICACIÓN DEL ADMINISTRADOR */
-
-async function createSession(env) {
- if (!env.SESSION_SECRET) {
-  throw Error('SESSION_SECRET no configurado.');
- }
-
- const expires = String(
-  Date.now() + 7 * 24 * 60 * 60 * 1000
- );
-
- const signature = await sign(
-  expires,
-  env.SESSION_SECRET
- );
-
- return expires + '.' + signature;
-}
-
-function sessionCookie(value) {
- return BR.cookie + '=' + value +
-  '; Path=/; HttpOnly; Secure; SameSite=Strict' +
-  '; Max-Age=604800';
-}
-
-function expiredCookie() {
- return BR.cookie + '=' +
-  '; Path=/; HttpOnly; Secure; SameSite=Strict' +
-  '; Max-Age=0';
-}
-
-async function requireAdmin(request, env) {
- const authenticated = await loggedIn(request, env);
-
- if (!authenticated) {
-  return reply(
-   { error: 'Sesión no autorizada.' },
-   401
-  );
- }
-
- return null;
-}
-
-function requireOrigin(request) {
- if (!checkOrigin(request)) {
-  return reply(
-   { error: 'Origen de solicitud no autorizado.' },
-   403
-  );
- }
-
- return null;
-}
-
-/* CONTROL DE INTENTOS DE INICIO DE SESIÓN */
-
-function clientIP(request) {
- return (
-  request.headers.get('CF-Connecting-IP') ||
-  'unknown'
- ).slice(0, 100);
-}
-
-async function getLoginAttempts(env, ip) {
- return await env.DB.prepare(`
-  SELECT failures, until_ms
-  FROM login_attempts
-  WHERE ip=?
- `).bind(ip).first();
-}
-
-async function registerLoginFailure(env, ip) {
- const current = await getLoginAttempts(env, ip);
-
- const failures =
-  Number(current?.failures || 0) + 1;
-
- const until =
-  failures >= 5
-   ? Date.now() + 15 * 60 * 1000
-   : 0;
-
- await env.DB.prepare(`
-  INSERT INTO login_attempts
-   (ip, failures, until_ms)
-  VALUES (?, ?, ?)
-  ON CONFLICT(ip)
-  DO UPDATE SET
-   failures=excluded.failures,
-   until_ms=excluded.until_ms
- `).bind(ip, failures, until).run();
-}
-
-async function clearLoginFailures(env, ip) {
- await env.DB.prepare(`
-  DELETE FROM login_attempts
-  WHERE ip=?
- `).bind(ip).run();
-}
-
-async function handleLogin(request, env) {
- if (!env.ADMIN_PASSWORD || !env.SESSION_SECRET) {
-  return reply(
-   { error: 'Falta configurar la seguridad.' },
-   500
-  );
- }
-
- const ip = clientIP(request);
- const attempts = await getLoginAttempts(env, ip);
-
- if (
-  attempts &&
-  Number(attempts.until_ms) > Date.now()
- ) {
-  return reply(
-   {
-    error:
-     'Demasiados intentos. Intenta nuevamente en 15 minutos.'
-   },
-   429
-  );
- }
-
- const body = await readJSON(request);
-
- const password = String(body.password || '');
-
- const expected = String(env.ADMIN_PASSWORD);
-
- const [submittedHash, expectedHash] =
-  await Promise.all([
-   sign(password, env.SESSION_SECRET),
-   sign(expected, env.SESSION_SECRET)
-  ]);
-
- let difference = 0;
-
- for (let i = 0; i < expectedHash.length; i++) {
-  difference |=
-   expectedHash.charCodeAt(i) ^
-   submittedHash.charCodeAt(i);
- }
-
- if (difference !== 0) {
-  await registerLoginFailure(env, ip);
-
-  return reply(
-   { error: 'Contraseña incorrecta.' },
-   401
-  );
- }
-
- await clearLoginFailures(env, ip);
-
- const session = await createSession(env);
-
- return reply(
-  { ok: true },
-  200,
-  {
-   'Set-Cookie': sessionCookie(session)
-  }
- );
-}
-
-async function handleLogout() {
- return reply(
-  { ok: true },
-  200,
-  {
-   'Set-Cookie': expiredCookie()
-  }
- );
-}
-
-/* SUBIDA SEGURA DE IMÁGENES A CLOUDINARY */
-
-async function cloudinarySignature(params, secret) {
- const ordered = Object.keys(params)
-  .sort()
-  .map(key => key + '=' + params[key])
-  .join('&');
-
- const digest = await crypto.subtle.digest(
-  'SHA-1',
-  encoder.encode(ordered + secret)
- );
-
- return Array.from(new Uint8Array(digest))
-  .map(byte => byte.toString(16).padStart(2, '0'))
-  .join('');
-}
-
-async function handleUpload(request, env) {
- if (
-  !env.CLOUDINARY_API_KEY ||
-  !env.CLOUDINARY_API_SECRET
- ) {
-  return reply(
-   {
-    error:
-     'Cloudinary no está configurado.'
-   },
-   500
-  );
- }
-
- const form = await request.formData();
- const file = form.get('file');
-
- if (!(file instanceof File)) {
-  return reply(
-   { error: 'Selecciona una imagen válida.' },
-   400
-  );
- }
-
- const allowedTypes = [
-  'image/jpeg',
-  'image/png',
-  'image/webp'
- ];
-
- if (!allowedTypes.includes(file.type)) {
-  return reply(
-   {
-    error:
-     'Solo se permiten imágenes JPG, PNG o WEBP.'
-   },
-   400
-  );
- }
-
- if (file.size > 8 * 1024 * 1024) {
-  return reply(
-   {
-    error:
-     'La imagen no puede superar 8 MB.'
-   },
-   400
-  );
- }
-
- const timestamp = String(
-  Math.floor(Date.now() / 1000)
- );
-
- const parameters = {
-  folder: 'brusaam',
-  timestamp
- };
-
- const signature = await cloudinarySignature(
-  parameters,
-  env.CLOUDINARY_API_SECRET
- );
-
- const uploadForm = new FormData();
-
- uploadForm.append('file', file);
- uploadForm.append(
-  'api_key',
-  env.CLOUDINARY_API_KEY
- );
- uploadForm.append('timestamp', timestamp);
- uploadForm.append('folder', 'brusaam');
- uploadForm.append('signature', signature);
-
- const endpoint =
-  'https://api.cloudinary.com/v1_1/' +
-  BR.cloud +
-  '/image/upload';
-
- const response = await fetch(endpoint, {
-  method: 'POST',
-  body: uploadForm
- });
-
- const result = await response.json();
-
- if (!response.ok || !result.secure_url) {
-  return reply(
-   {
-    error:
-     result.error?.message ||
-     'No se pudo subir la fotografía.'
-   },
-   502
-  );
- }
-
- return reply({
-  ok: true,
-  url: result.secure_url
- });
-}
-
-/* VALIDACIÓN DE PRODUCTOS */
-
-function validateProduct(body) {
- const product = {
-  id: body.id
-   ? cleanNumber(body.id, 1)
-   : null,
-
-  name: cleanText(body.name, 160),
-
-  category: cleanText(body.category, 100),
-
-  subcategory:
-   cleanText(body.subcategory, 100),
-
-  description:
-   cleanText(body.description, 1000),
-
-  retail: cleanNumber(body.retail),
-
-  wholesale: cleanNumber(body.wholesale),
-
-  min_qty: cleanNumber(body.min_qty, 1),
-
-  stock: cleanNumber(body.stock),
-
-  image: validateImage(body.image),
-
-  manga_price:
-   cleanNumber(body.manga_price || 0),
-
-  packs_per_manga:
-   cleanNumber(body.packs_per_manga || 0),
-
-  destacados:
-   body.destacados ? 1 : 0,
-
-  pack_ahorro:
-   body.pack_ahorro ? 1 : 0,
-
-  ofertas:
-   body.ofertas ? 1 : 0,
-
-  box_pyme:
-   body.box_pyme ? 1 : 0,
-
-  active:
-   body.active ? 1 : 0
- };
-
- if (!product.name || !product.category) {
-  throw Error(
-   'Nombre y categoría son obligatorios.'
-  );
- }
-
- return product;
-}
-
-/* OPERACIONES DE PRODUCTOS EN D1 */
-
-async function saveProduct(env, body) {
- const product = validateProduct(body);
-
- const category = await env.DB.prepare(`
-  SELECT id FROM shop_categories
-  WHERE name=?
- `).bind(product.category).first();
-
- if (!category) {
-  return reply({
-   error: 'La categoría seleccionada no existe.'
-  }, 400);
- }
-
- if (product.subcategory) {
-  const sub = await env.DB.prepare(`
-   SELECT id FROM shop_subcategories
-   WHERE category_id=? AND name=?
-  `).bind(
-   category.id,
-   product.subcategory
-  ).first();
-
-  if (!sub) {
-   return reply({
-    error: 'La subcategoría no pertenece a esa categoría.'
-   }, 400);
-  }
- }
-
- const values = [
-  product.name,
-  product.category,
-  product.subcategory,
-  product.description,
-  product.retail,
-  product.wholesale,
-  product.min_qty,
-  product.stock,
-  product.image,
-  product.active,
-  product.destacados,
-  product.pack_ahorro,
-  product.ofertas,
-  product.box_pyme,
-  product.manga_price,
-  product.packs_per_manga
- ];
-
- if (product.id) {
-  const existing = await env.DB.prepare(`
-   SELECT id FROM products WHERE id=?
-  `).bind(product.id).first();
-
-  if (!existing) {
-   return reply({
-    error: 'Producto no encontrado.'
-   }, 404);
+function validProduct(product) {
+  if (
+    !product ||
+    typeof product.name !== "string" ||
+    !product.name.trim() ||
+    product.name.length > 160 ||
+    typeof product.category !== "string" ||
+    !product.category.trim() ||
+    product.category.length > 100 ||
+    typeof product.subcategory !== "string" ||
+    product.subcategory.length > 100 ||
+    typeof product.description !== "string" ||
+    product.description.length > 1000 ||
+    !validInteger(product.retail) ||
+    !validInteger(product.wholesale) ||
+    !validInteger(product.min_qty, 1) ||
+    !validInteger(product.stock) ||
+    !validInteger(product.manga_price) ||
+    !validInteger(product.packs_per_manga) ||
+    !validImage(product.image)
+  ) {
+    return false;
   }
 
-  await env.DB.prepare(`
-   UPDATE products SET
-    name=?,
-    category=?,
-    subcategory=?,
-    description=?,
-    retail=?,
-    wholesale=?,
-    min_qty=?,
-    stock=?,
-    image=?,
-    active=?,
-    destacados=?,
-    pack_ahorro=?,
-    ofertas=?,
-    box_pyme=?,
-    manga_price=?,
-    packs_per_manga=?
-   WHERE id=?
-  `).bind(
-   ...values,
-   product.id
-  ).run();
+  const paper =
+    product.category === "Papelería" &&
+    product.subcategory === "Papel higiénico";
+
+  if (
+    !paper &&
+    (
+      product.manga_price ||
+      product.packs_per_manga
+    )
+  ) {
+    return false;
+  }
+
+  if (paper) {
+    const price = product.manga_price > 0;
+    const quantity = product.packs_per_manga > 0;
+
+    if (price !== quantity) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function validCategory(value) {
+  return (
+    value &&
+    typeof value.name === "string" &&
+    !!value.name.trim() &&
+    value.name.length <= 100 &&
+    validImage(value.image) &&
+    Number.isSafeInteger(value.position)
+  );
+}
+
+/* SUBIDA DE IMÁGENES CLOUDINARY */
+
+async function cloudSignature(parameters, secret) {
+  const content = Object.keys(parameters)
+    .sort()
+    .map(key => key + "=" + parameters[key])
+    .join("&") + secret;
+
+  const hash = await crypto.subtle.digest(
+    "SHA-1",
+    encoder.encode(content)
+  );
+
+  return [...new Uint8Array(hash)]
+    .map(byte =>
+      byte.toString(16).padStart(2, "0")
+    )
+    .join("");
+}
+
+async function uploadImage(request, env) {
+  if (
+    !env.CLOUDINARY_API_KEY ||
+    !env.CLOUDINARY_API_SECRET
+  ) {
+    return reply({
+      error: "Falta configurar Cloudinary"
+    }, 503);
+  }
+
+  const length = Number(
+    request.headers.get("Content-Length") || 0
+  );
+
+  if (length > 6 * 1024 * 1024) {
+    return reply({
+      error: "Archivo demasiado grande"
+    }, 413);
+  }
+
+  const contentType =
+    request.headers.get("Content-Type") || "";
+
+  if (
+    !contentType.toLowerCase().startsWith(
+      "multipart/form-data;"
+    )
+  ) {
+    return reply({
+      error: "Formato no permitido"
+    }, 400);
+  }
+
+  const form = await request.formData()
+    .catch(() => null);
+
+  const file = form?.get("file");
+
+  if (
+    !(file instanceof File) ||
+    file.size === 0 ||
+    file.size > 5 * 1024 * 1024 ||
+    ![
+      "image/jpeg",
+      "image/png",
+      "image/webp"
+    ].includes(file.type)
+  ) {
+    return reply({
+      error: "Usa JPG, PNG o WebP de máximo 5 MB"
+    }, 400);
+  }
+
+  const bytes = new Uint8Array(
+    await file.slice(0, 12).arrayBuffer()
+  );
+
+  const jpeg =
+    bytes[0] === 255 &&
+    bytes[1] === 216 &&
+    bytes[2] === 255;
+
+  const png =
+    bytes[0] === 137 &&
+    bytes[1] === 80 &&
+    bytes[2] === 78 &&
+    bytes[3] === 71 &&
+    bytes[4] === 13 &&
+    bytes[5] === 10 &&
+    bytes[6] === 26 &&
+    bytes[7] === 10;
+
+  const webp =
+    String.fromCharCode(
+      ...bytes.slice(0, 4)
+    ) === "RIFF" &&
+    String.fromCharCode(
+      ...bytes.slice(8, 12)
+    ) === "WEBP";
+
+  if (
+    !(
+      (file.type === "image/jpeg" && jpeg) ||
+      (file.type === "image/png" && png) ||
+      (file.type === "image/webp" && webp)
+    )
+  ) {
+    return reply({
+      error: "El archivo no es una imagen válida"
+    }, 400);
+  }
+
+  const parameters = {
+    folder: "brusaam-productos",
+    timestamp: String(
+      Math.floor(Date.now() / 1000)
+    )
+  };
+
+  const signature = await cloudSignature(
+    parameters,
+    env.CLOUDINARY_API_SECRET
+  );
+
+  const body = new FormData();
+
+  body.append("file", file, file.name);
+  body.append("folder", parameters.folder);
+  body.append("timestamp", parameters.timestamp);
+  body.append("api_key", env.CLOUDINARY_API_KEY);
+  body.append("signature", signature);
+
+  const response = await fetch(
+    "https://api.cloudinary.com/v1_1/" +
+    BR.cloud + "/image/upload",
+    {
+      method: "POST",
+      body
+    }
+  );
+
+  const result = await response.json()
+    .catch(() => null);
+
+  if (
+    !response.ok ||
+    !result?.secure_url ||
+    !result.secure_url.startsWith(
+      "https://res.cloudinary.com/" +
+      BR.cloud + "/"
+    )
+  ) {
+    return reply({
+      error: "No se pudo subir la fotografía"
+    }, 502);
+  }
 
   return reply({
-   ok: true,
-   id: product.id
+    url: result.secure_url
   });
- }
-
- const result = await env.DB.prepare(`
-  INSERT INTO products (
-   name,category,subcategory,
-   description,retail,wholesale,
-   min_qty,stock,image,active,
-   destacados,pack_ahorro,
-   ofertas,box_pyme,
-   manga_price,packs_per_manga
-  )
-  VALUES (
-   ?,?,?,?,?,?,?,?,
-   ?,?,?,?,?,?,?,?
-  )
- `).bind(...values).run();
-
- return reply({
-  ok: true,
-  id: result.meta.last_row_id
- });
 }
 
-async function removeProduct(env, body) {
- const id = cleanNumber(body.id, 1);
-
- const existing = await env.DB.prepare(`
-  SELECT id FROM products WHERE id=?
- `).bind(id).first();
-
- if (!existing) {
-  return reply({
-   error: 'Producto no encontrado.'
-  }, 404);
- }
-
- await env.DB.prepare(`
-  DELETE FROM products WHERE id=?
- `).bind(id).run();
-
- return reply({ ok: true });
-}
-
-/* OPERACIONES DE CATEGORÍAS */
-
-async function saveCategory(env, body) {
- const id = body.id
-  ? cleanNumber(body.id, 1)
-  : null;
-
- const name = cleanText(body.name, 100);
- const image = validateImage(body.image);
- const position = Number(body.position ?? 0);
-
- if (
-  !name ||
-  !Number.isSafeInteger(position)
- ) {
-  return reply({
-   error: 'Datos de categoría inválidos.'
-  }, 400);
- }
-
- if (id) {
-  const old = await env.DB.prepare(`
-   SELECT name FROM shop_categories WHERE id=?
-  `).bind(id).first();
-
-  if (!old) {
-   return reply({
-    error: 'Categoría no encontrada.'
-   }, 404);
-  }
-
-  await env.DB.batch([
-   env.DB.prepare(`
-    UPDATE shop_categories
-    SET name=?,image=?,position=?
-    WHERE id=?
-   `).bind(name, image, position, id),
-
-   env.DB.prepare(`
-    UPDATE products
-    SET category=?
-    WHERE category=?
-   `).bind(name, old.name)
-  ]);
-
-  return reply({ ok: true, id });
- }
-
- const result = await env.DB.prepare(`
-  INSERT INTO shop_categories
-  (name,image,position)
-  VALUES(?,?,?)
- `).bind(name, image, position).run();
-
- return reply({
-  ok: true,
-  id: result.meta.last_row_id
- });
-}
-
-async function removeCategory(env, body) {
- const id = cleanNumber(body.id, 1);
-
- const category = await env.DB.prepare(`
-  SELECT name FROM shop_categories WHERE id=?
- `).bind(id).first();
-
- if (!category) {
-  return reply({
-   error: 'Categoría no encontrada.'
-  }, 404);
- }
-
- const products = await env.DB.prepare(`
-  SELECT COUNT(*) AS total
-  FROM products WHERE category=?
- `).bind(category.name).first();
-
- if (Number(products.total) > 0) {
-  return reply({
-   error:
-    'Esta categoría contiene productos. ' +
-    'Debes cambiarlos de categoría antes de eliminarla.'
-  }, 409);
- }
-
- await env.DB.batch([
-  env.DB.prepare(`
-   DELETE FROM shop_subcategories
-   WHERE category_id=?
-  `).bind(id),
-
-  env.DB.prepare(`
-   DELETE FROM shop_categories
-   WHERE id=?
-  `).bind(id)
- ]);
-
- return reply({ ok: true });
-}
-
-/* OPERACIONES DE SUBCATEGORÍAS */
-
-async function saveSubcategory(env, body) {
- const id = body.id
-  ? cleanNumber(body.id, 1)
-  : null;
-
- const categoryId = cleanNumber(
-  body.category_id, 1
- );
-
- const name = cleanText(body.name, 100);
- const image = validateImage(body.image);
- const position = Number(body.position ?? 0);
-
- if (
-  !name ||
-  !Number.isSafeInteger(position)
- ) {
-  return reply({
-   error: 'Datos de subcategoría inválidos.'
-  }, 400);
- }
-
- const category = await env.DB.prepare(`
-  SELECT name FROM shop_categories
-  WHERE id=?
- `).bind(categoryId).first();
-
- if (!category) {
-  return reply({
-   error: 'La categoría principal no existe.'
-  }, 400);
- }
-
- if (id) {
-  const old = await env.DB.prepare(`
-   SELECT
-    s.name,
-    c.name AS category
-   FROM shop_subcategories s
-   JOIN shop_categories c
-    ON c.id=s.category_id
-   WHERE s.id=?
-  `).bind(id).first();
-
-  if (!old) {
-   return reply({
-    error: 'Subcategoría no encontrada.'
-   }, 404);
-  }
-
-  await env.DB.batch([
-   env.DB.prepare(`
-    UPDATE shop_subcategories
-    SET category_id=?,name=?,image=?,position=?
-    WHERE id=?
-   `).bind(
-    categoryId,
-    name,
-    image,
-    position,
-    id
-   ),
-
-   env.DB.prepare(`
-    UPDATE products
-    SET category=?,subcategory=?
-    WHERE category=? AND subcategory=?
-   `).bind(
-    category.name,
-    name,
-    old.category,
-    old.name
-   )
-  ]);
-
-  return reply({ ok: true, id });
- }
-
- const result = await env.DB.prepare(`
-  INSERT INTO shop_subcategories
-  (category_id,name,image,position)
-  VALUES(?,?,?,?)
- `).bind(
-  categoryId,
-  name,
-  image,
-  position
- ).run();
-
- return reply({
-  ok: true,
-  id: result.meta.last_row_id
- });
-}
-
-async function removeSubcategory(env, body) {
- const id = cleanNumber(body.id, 1);
-
- const sub = await env.DB.prepare(`
-  SELECT
-   s.name,
-   c.name AS category
-  FROM shop_subcategories s
-  JOIN shop_categories c
-   ON c.id=s.category_id
-  WHERE s.id=?
- `).bind(id).first();
-
- if (!sub) {
-  return reply({
-   error: 'Subcategoría no encontrada.'
-  }, 404);
- }
-
- const products = await env.DB.prepare(`
-  SELECT COUNT(*) AS total
-  FROM products
-  WHERE category=? AND subcategory=?
- `).bind(
-  sub.category,
-  sub.name
- ).first();
-
- if (Number(products.total) > 0) {
-  return reply({
-   error:
-    'Esta subcategoría contiene productos. ' +
-    'Debes moverlos antes de eliminarla.'
-  }, 409);
- }
-
- await env.DB.prepare(`
-  DELETE FROM shop_subcategories
-  WHERE id=?
- `).bind(id).run();
-
- return reply({ ok: true });
-}
-
-/* SECCIONES PROMOCIONALES */
-
-async function saveSection(env, body) {
- const slug = cleanText(body.slug, 50);
- const title = cleanText(body.title, 100);
- const image = validateImage(body.image);
-
- if (
-  !title ||
-  !GROUPS.some(group => group[0] === slug)
- ) {
-  return reply({
-   error: 'Sección no válida.'
-  }, 400);
- }
-
- await env.DB.prepare(`
-  UPDATE shop_sections
-  SET title=?,image=?
-  WHERE slug=?
- `).bind(
-  title,
-  image,
-  slug
- ).run();
-
- return reply({ ok: true });
-}
-
-/* LOGO Y DISEÑO */
-
-async function saveSetting(env, body) {
- const key = cleanText(body.key, 30);
- const value = validateImage(body.value);
-
- if (
-  !['logo', 'design'].includes(key) ||
-  (key === 'logo' && !value)
- ) {
-  return reply({
-   error: 'Configuración inválida.'
-  }, 400);
- }
-
- await env.DB.prepare(`
-  INSERT INTO shop_settings
-  (key,value)
-  VALUES(?,?)
-  ON CONFLICT(key)
-  DO UPDATE SET value=excluded.value
- `).bind(key, value).run();
-
- return reply({ ok: true });
-}
-
-/* RUTAS PRINCIPALES DE BRUSAAM */
-
-async function handleRequest(request, env) {
- const url = new URL(request.url);
- const path = url.pathname;
- const method = request.method.toUpperCase();
-
- /* PÁGINAS PÚBLICAS */
-
- if (path === '/' && method === 'GET') {
-  return htmlPage(SHOP);
- }
-
- if (path === '/admin' && method === 'GET') {
-  return htmlPage(ADMIN, true);
- }
-
- /* CATÁLOGO PÚBLICO */
-
- if (path === '/api/shop' && method === 'GET') {
-  const data = await getData(env, false);
-
-  return reply(data);
- }
-
- /* VERIFICAR SESIÓN ADMINISTRATIVA */
-
- if (
-  path === '/api/admin/session' &&
-  method === 'GET'
- ) {
-  const authenticated =
-   await loggedIn(request, env);
-
-  return reply({ authenticated });
- }
-
- /* SEGURIDAD DE SOLICITUDES */
-
- if (
-  path.startsWith('/api/admin/') &&
-  method !== 'GET'
- ) {
-  const originError = requireOrigin(request);
-
-  if (originError) {
-   return originError;
-  }
- }
-
- /* INICIO DE SESIÓN */
-
- if (
-  path === '/api/admin/login' &&
-  method === 'POST'
- ) {
-  return handleLogin(request, env);
- }
-
- /* PROTEGER TODAS LAS DEMÁS RUTAS ADMIN */
-
- if (path.startsWith('/api/admin/')) {
-  const accessError =
-   await requireAdmin(request, env);
-
-  if (accessError) {
-   return accessError;
-  }
-
-  /* CERRAR SESIÓN */
-
-  if (
-   path === '/api/admin/logout' &&
-   method === 'POST'
-  ) {
-   return handleLogout();
-  }
-
-  /* CARGAR DATOS ADMINISTRATIVOS */
-
-  if (
-   path === '/api/admin/data' &&
-   method === 'GET'
-  ) {
-   return reply(await getData(env, true));
-  }
-
-  /* SUBIR FOTOGRAFÍA */
-
-  if (
-   path === '/api/admin/upload' &&
-   method === 'POST'
-  ) {
-   return handleUpload(request, env);
-  }
-
-  /* PRODUCTOS */
-
-  if (path === '/api/admin/product') {
-   if (method === 'POST') {
-    const body = await readJSON(request);
-    return saveProduct(env, body);
-   }
-
-   if (method === 'DELETE') {
-    const body = await readJSON(request);
-    return removeProduct(env, body);
-   }
-  }
-
-  /* CATEGORÍAS */
-
-  if (path === '/api/admin/category') {
-   if (method === 'POST') {
-    const body = await readJSON(request);
-    return saveCategory(env, body);
-   }
-
-   if (method === 'DELETE') {
-    const body = await readJSON(request);
-    return removeCategory(env, body);
-   }
-  }
-
-  /* SUBCATEGORÍAS */
-
-  if (path === '/api/admin/subcategory') {
-   if (method === 'POST') {
-    const body = await readJSON(request);
-    return saveSubcategory(env, body);
-   }
-
-   if (method === 'DELETE') {
-    const body = await readJSON(request);
-    return removeSubcategory(env, body);
-   }
-  }
-
-  /* SECCIONES PROMOCIONALES */
-
-  if (
-   path === '/api/admin/section' &&
-   method === 'POST'
-  ) {
-   const body = await readJSON(request);
-   return saveSection(env, body);
-  }
-
-  /* LOGO Y DISEÑO */
-
-  if (
-   path === '/api/admin/setting' &&
-   method === 'POST'
-  ) {
-   const body = await readJSON(request);
-   return saveSetting(env, body);
-  }
- }
-
- /* RUTA NO ENCONTRADA */
-
- return reply(
-  { error: 'Ruta no encontrada.' },
-  404
- );
-}
-
-/* INICIO DEL CLOUDFLARE WORKER */
+/* SERVIDOR CLOUDFLARE WORKERS */
 
 export default {
- async fetch(request, env, ctx) {
-  try {
-   if (!env.DB) {
-    return reply(
-     {
-      error:
-       'La base de datos D1 no está configurada.'
-     },
-     500
-    );
-   }
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
 
-   await initialize(env);
+    try {
+      if (path === "/" && method === "GET") {
+        return htmlPage(SHOP);
+      }
 
-   return await handleRequest(request, env);
+      if (
+        path === "/admin" &&
+        method === "GET"
+      ) {
+        return htmlPage(ADMIN, true);
+      }
 
-  } catch (error) {
-   console.error(
-    'Error en Brusaam Worker:',
-    error
-   );
+      if (
+        path === "/api/admin/session" &&
+        method === "GET"
+      ) {
+        return reply({
+          authenticated:
+            await loggedIn(request, env)
+        });
+      }
 
-   if (error instanceof SyntaxError) {
-    return reply(
-     { error: 'Formato de datos inválido.' },
-     400
-    );
-   }
+      if (
+        path === "/api/shop" &&
+        method === "GET"
+      ) {
+        await initialize(env);
 
-   if (
-    error instanceof TypeError ||
-    error instanceof RangeError
-   ) {
-    return reply(
-     { error: 'Datos de solicitud inválidos.' },
-     400
-    );
-   }
+        return reply(
+          await getData(env)
+        );
+      }
 
-   return reply(
-    {
-     error:
-      'No fue posible completar la operación.'
-    },
-    500
-   );
+      if (
+        path === "/api/productos" &&
+        method === "GET"
+      ) {
+        await initialize(env);
+
+        const data = await getData(env);
+
+        return reply(data.products);
+      }
+
+      if (!path.startsWith("/api/admin/")) {
+        return reply({
+          error: "Ruta no encontrada"
+        }, 404);
+      }
+
+      if (
+        !env.DB ||
+        !env.ADMIN_PASSWORD ||
+        !env.SESSION_SECRET
+      ) {
+        return reply({
+          error:
+            "Falta configuración del administrador"
+        }, 503);
+      }
+
+      if (
+        method !== "GET" &&
+        !checkOrigin(request)
+      ) {
+        return reply({
+          error: "Origen no permitido"
+        }, 403);
+      }
+
+      /* INICIAR SESIÓN */
+
+      if (
+        path === "/api/admin/login" &&
+        method === "POST"
+      ) {
+        await initialize(env);
+
+        const ip =
+          request.headers.get("CF-Connecting-IP") ||
+          "unknown";
+
+        const attempts =
+          await env.DB.prepare(`
+            SELECT failures,until_ms
+            FROM login_attempts
+            WHERE ip=?
+          `).bind(ip).first() || {
+            failures: 0,
+            until_ms: 0
+          };
+
+        if (
+          attempts.failures >= 5 &&
+          attempts.until_ms > Date.now()
+        ) {
+          return reply({
+            error:
+              "Demasiados intentos. Espera 15 minutos."
+          }, 429);
+        }
+
+        const body = await request.json()
+          .catch(() => ({}));
+
+        const entered =
+          typeof body.password === "string"
+            ? body.password
+            : "";
+
+        const hashEntered = new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            encoder.encode(entered)
+          )
+        );
+
+        const hashExpected = new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            encoder.encode(env.ADMIN_PASSWORD)
+          )
+        );
+
+        let difference = 0;
+
+        for (
+          let i = 0;
+          i < hashEntered.length;
+          i++
+        ) {
+          difference |=
+            hashEntered[i] ^ hashExpected[i];
+        }
+
+        if (difference !== 0) {
+          const failures =
+            attempts.until_ms < Date.now()
+              ? 1
+              : attempts.failures + 1;
+
+          await env.DB.prepare(`
+            INSERT INTO login_attempts
+            (ip,failures,until_ms)
+            VALUES(?,?,?)
+            ON CONFLICT(ip)
+            DO UPDATE SET
+             failures=excluded.failures,
+             until_ms=excluded.until_ms
+          `).bind(
+            ip,
+            failures,
+            Date.now() + 15 * 60 * 1000
+          ).run();
+
+          return reply({
+            error: "Contraseña incorrecta"
+          }, 401);
+        }
+
+        await env.DB.prepare(`
+          DELETE FROM login_attempts
+
+          WHERE ip=?
+        `).bind(ip).run();
+
+        const expires = String(
+          Date.now() + 8 * 60 * 60 * 1000
+        );
+
+        const signature = await sign(
+          expires,
+          env.SESSION_SECRET
+        );
+
+        return reply(
+          { ok: true },
+          200,
+          {
+            "Set-Cookie":
+              BR.cookie + "=" +
+              expires + "." + signature +
+              "; HttpOnly; Secure; SameSite=Strict;" +
+              " Path=/; Max-Age=28800"
+          }
+        );
+      }
+
+      /* CERRAR SESIÓN */
+
+      if (
+        path === "/api/admin/logout" &&
+        method === "POST"
+      ) {
+        return reply(
+          { ok: true },
+          200,
+          {
+            "Set-Cookie":
+              BR.cookie +
+              "=; HttpOnly; Secure; SameSite=Strict;" +
+              " Path=/; Max-Age=0"
+          }
+        );
+      }
+
+      if (!await loggedIn(request, env)) {
+        return reply({
+          error: "Debes iniciar sesión"
+        }, 401);
+      }
+
+      /* SUBIR IMÁGENES */
+
+      if (
+        path === "/api/admin/upload" &&
+        method === "POST"
+      ) {
+        return uploadImage(request, env);
+      }
+
+      await initialize(env);
+
+      /* DATOS DE ADMINISTRACIÓN */
+
+      if (
+        path === "/api/admin/data" &&
+        method === "GET"
+      ) {
+        return reply(
+          await getData(env, true)
+        );
+      }
+
+      /* PRODUCTOS */
+
+      const productId = path.match(
+        /^\/api\/admin\/products\/(\d+)$/
+      );
+
+      if (
+        path === "/api/admin/products" &&
+        method === "POST"
+      ) {
+        const product = await request.json()
+          .catch(() => null);
+
+        if (!validProduct(product)) {
+          return reply({
+            error: "Revisa los datos del producto"
+          }, 400);
+        }
+
+        const result = await env.DB.prepare(`
+          INSERT INTO products
+          (
+           name,category,subcategory,
+           description,retail,wholesale,
+           min_qty,stock,image,active,
+           destacados,pack_ahorro,
+           ofertas,box_pyme,
+           manga_price,packs_per_manga
+          )
+          VALUES(
+           ?,?,?,?,?,?,?,?,?,?,
+           ?,?,?,?,?,?
+          )
+        `).bind(
+          product.name.trim(),
+          product.category,
+          product.subcategory,
+          product.description,
+          product.retail,
+          product.wholesale,
+          product.min_qty,
+          product.stock,
+          product.image,
+          product.active ? 1 : 0,
+          product.destacados ? 1 : 0,
+          product.pack_ahorro ? 1 : 0,
+          product.ofertas ? 1 : 0,
+          product.box_pyme ? 1 : 0,
+          product.manga_price,
+          product.packs_per_manga
+        ).run();
+
+        return reply({
+          ok: true,
+          id: result.meta.last_row_id
+        });
+      }
+
+      if (
+        productId &&
+        method === "PUT"
+      ) {
+        const product = await request.json()
+          .catch(() => null);
+
+        if (!validProduct(product)) {
+          return reply({
+            error: "Revisa los datos del producto"
+          }, 400);
+        }
+
+        await env.DB.prepare(`
+          UPDATE products SET
+           name=?,
+           category=?,
+           subcategory=?,
+           description=?,
+           retail=?,
+           wholesale=?,
+           min_qty=?,
+           stock=?,
+           image=?,
+           active=?,
+           destacados=?,
+           pack_ahorro=?,
+           ofertas=?,
+           box_pyme=?,
+           manga_price=?,
+           packs_per_manga=?
+          WHERE id=?
+        `).bind(
+          product.name.trim(),
+          product.category,
+          product.subcategory,
+          product.description,
+          product.retail,
+          product.wholesale,
+          product.min_qty,
+          product.stock,
+          product.image,
+          product.active ? 1 : 0,
+          product.destacados ? 1 : 0,
+          product.pack_ahorro ? 1 : 0,
+          product.ofertas ? 1 : 0,
+          product.box_pyme ? 1 : 0,
+          product.manga_price,
+          product.packs_per_manga,
+          Number(productId[1])
+        ).run();
+
+        return reply({ ok: true });
+      }
+
+      if (
+        productId &&
+        method === "DELETE"
+      ) {
+        await env.DB.prepare(`
+          DELETE FROM products
+          WHERE id=?
+        `).bind(
+          Number(productId[1])
+        ).run();
+
+        return reply({ ok: true });
+      }
+
+      /* SECCIONES */
+
+
+      const section = path.match(
+        /^\/api\/admin\/sections\/([a-z_]+)$/
+      );
+
+      if (
+        section &&
+        method === "PUT"
+      ) {
+        const slug = section[1];
+
+        if (
+          !GROUPS.some(
+            group => group[0] === slug
+          )
+        ) {
+          return reply({
+            error: "Sección no válida"
+          }, 400);
+        }
+
+        const body = await request.json()
+          .catch(() => null);
+
+        if (
+          !body ||
+          !validImage(body.image)
+        ) {
+          return reply({
+            error: "Imagen no válida"
+          }, 400);
+        }
+
+        await env.DB.prepare(`
+          UPDATE shop_sections
+          SET image=?
+          WHERE slug=?
+        `).bind(
+          body.image,
+          slug
+        ).run();
+
+        return reply({ ok: true });
+      }
+
+      /* LOGO Y DISEÑO */
+
+      const setting = path.match(
+        /^\/api\/admin\/settings\/(logo|design)$/
+      );
+
+      if (
+        setting &&
+        method === "PUT"
+      ) {
+        const key = setting[1];
+
+        const body = await request.json()
+          .catch(() => null);
+
+        if (
+          !body ||
+          !validImage(body.value) ||
+          (
+            key === "logo" &&
+            !body.value
+          )
+        ) {
+          return reply({
+            error: "URL de imagen no válida"
+          }, 400);
+        }
+
+        await env.DB.prepare(`
+          INSERT INTO shop_settings
+          (key,value)
+          VALUES(?,?)
+          ON CONFLICT(key)
+          DO UPDATE SET
+           value=excluded.value
+        `).bind(
+          key,
+          body.value
+        ).run();
+
+        return reply({ ok: true });
+      }
+
+      /* CATEGORÍAS */
+
+      const categoryId = path.match(
+        /^\/api\/admin\/categories\/(\d+)$/
+      );
+
+      if (
+        path === "/api/admin/categories" &&
+        method === "POST"
+      ) {
+        const category = await request.json()
+          .catch(() => null);
+
+        if (!validCategory(category)) {
+          return reply({
+            error: "Datos de categoría inválidos"
+          }, 400);
+        }
+
+        await env.DB.prepare(`
+          INSERT INTO shop_categories
+          (name,image,position)
+          VALUES(?,?,?)
+        `).bind(
+          category.name.trim(),
+          category.image,
+          category.position
+        ).run();
+
+        return reply({ ok: true });
+      }
+
+      if (
+        categoryId &&
+        method === "PUT"
+      ) {
+        const category = await request.json()
+          .catch(() => null);
+
+        if (!validCategory(category)) {
+          return reply({
+            error: "Datos de categoría inválidos"
+          }, 400);
+        }
+
+        const id = Number(categoryId[1]);
+
+        const old = await env.DB.prepare(`
+          SELECT name
+          FROM shop_categories
+          WHERE id=?
+        `).bind(id).first();
+
+        if (!old) {
+          return reply({
+            error: "Categoría no encontrada"
+          }, 404);
+        }
+
+        await env.DB.batch([
+          env.DB.prepare(`
+            UPDATE shop_categories
+            SET name=?,image=?,position=?
+            WHERE id=?
+          `).bind(
+            category.name.trim(),
+            category.image,
+            category.position,
+            id
+          ),
+
+          env.DB.prepare(`
+            UPDATE products
+            SET category=?
+            WHERE category=?
+          `).bind(
+            category.name.trim(),
+            old.name
+          )
+        ]);
+
+        return reply({ ok: true });
+      }
+
+      if (
+        categoryId &&
+        method === "DELETE"
+      ) {
+        const id = Number(categoryId[1]);
+
+        const old = await env.DB.prepare(`
+          SELECT name
+          FROM shop_categories
+          WHERE id=?
+        `).bind(id).first();
+
+        if (!old) {
+          return reply({
+            error: "Categoría no encontrada"
+          }, 404);
+        }
+
+        const count = await env.DB.prepare(`
+          SELECT COUNT(*) AS total
+          FROM products
+          WHERE category=?
+        `).bind(old.name).first();
+
+        if (count.total > 0) {
+          return reply({
+            error:
+              "La categoría tiene productos. " +
+              "Cámbialos antes de eliminarla."
+
+          }, 409);
+        }
+
+        await env.DB.batch([
+          env.DB.prepare(`
+            DELETE FROM shop_subcategories
+            WHERE category_id=?
+          `).bind(id),
+
+          env.DB.prepare(`
+            DELETE FROM shop_categories
+            WHERE id=?
+          `).bind(id)
+        ]);
+
+        return reply({ ok: true });
+      }
+
+      /* SUBCATEGORÍAS */
+
+      const subId = path.match(
+        /^\/api\/admin\/subcategories\/(\d+)$/
+      );
+
+      if (
+        path === "/api/admin/subcategories" &&
+        method === "POST"
+      ) {
+        const sub = await request.json()
+          .catch(() => null);
+
+        if (
+          !validCategory(sub) ||
+          !validInteger(sub.category_id, 1)
+        ) {
+          return reply({
+            error: "Datos de subcategoría inválidos"
+          }, 400);
+        }
+
+        const category = await env.DB.prepare(`
+          SELECT id
+          FROM shop_categories
+          WHERE id=?
+        `).bind(
+          sub.category_id
+        ).first();
+
+        if (!category) {
+          return reply({
+            error: "Categoría principal no encontrada"
+          }, 400);
+        }
+
+        await env.DB.prepare(`
+          INSERT INTO shop_subcategories
+          (category_id,name,image,position)
+          VALUES(?,?,?,?)
+        `).bind(
+          sub.category_id,
+          sub.name.trim(),
+          sub.image,
+          sub.position
+        ).run();
+
+        return reply({ ok: true });
+      }
+
+      if (
+        subId &&
+        method === "PUT"
+      ) {
+        const sub = await request.json()
+          .catch(() => null);
+
+        if (
+          !validCategory(sub) ||
+          !validInteger(sub.category_id, 1)
+        ) {
+          return reply({
+            error: "Datos de subcategoría inválidos"
+          }, 400);
+        }
+
+        const id = Number(subId[1]);
+
+        const old = await env.DB.prepare(`
+          SELECT
+           s.name,
+           c.name AS category
+          FROM shop_subcategories s
+          JOIN shop_categories c
+           ON c.id=s.category_id
+          WHERE s.id=?
+        `).bind(id).first();
+
+        const nextCategory =
+          await env.DB.prepare(`
+            SELECT name
+            FROM shop_categories
+            WHERE id=?
+          `).bind(
+            sub.category_id
+          ).first();
+
+        if (!old || !nextCategory) {
+          return reply({
+            error:
+              "Categoría o subcategoría no encontrada"
+          }, 404);
+        }
+
+        await env.DB.batch([
+          env.DB.prepare(`
+            UPDATE shop_subcategories
+            SET
+             category_id=?,
+             name=?,
+             image=?,
+             position=?
+            WHERE id=?
+          `).bind(
+            sub.category_id,
+            sub.name.trim(),
+            sub.image,
+            sub.position,
+            id
+          ),
+
+          env.DB.prepare(`
+            UPDATE products
+            SET category=?,subcategory=?
+            WHERE category=? AND subcategory=?
+          `).bind(
+            nextCategory.name,
+            sub.name.trim(),
+            old.category,
+            old.name
+          )
+        ]);
+
+        return reply({ ok: true });
+      }
+
+      if (
+        subId &&
+        method === "DELETE"
+      ) {
+        const id = Number(subId[1]);
+
+        const old = await env.DB.prepare(`
+          SELECT
+           s.name,
+           c.name AS category
+          FROM shop_subcategories s
+          JOIN shop_categories c
+           ON c.id=s.category_id
+          WHERE s.id=?
+        `).bind(id).first();
+
+        if (!old) {
+          return reply({
+            error: "Subcategoría no encontrada"
+          }, 404);
+        }
+
+        const count = await env.DB.prepare(`
+          SELECT COUNT(*) AS total
+          FROM products
+          WHERE category=? AND subcategory=?
+        `).bind(
+          old.category,
+          old.name
+        ).first();
+
+        if (count.total > 0) {
+          return reply({
+            error:
+              "Esta subcategoría tiene productos. " +
+              "Cámbialos antes de eliminarla."
+          }, 409);
+        }
+
+        await env.DB.prepare(`
+          DELETE FROM shop_subcategories
+          WHERE id=?
+        `).bind(id).run();
+
+        return reply({ ok: true });
+      }
+
+      return reply({
+        error: "Ruta no encontrada"
+      }, 404);
+
+    } catch (error) {
+      console.error(
+        "BRUSAAM ERROR:",
+        error
+      );
+
+      if (
+        String(error.message).includes(
+          "UNIQUE constraint failed"
+        )
+      ) {
+        return reply({
+          error:
+            "Ya existe un registro con ese nombre"
+        }, 409);
+      }
+
+      return reply({
+        error:
+          "Error interno. Revisa los registros de Cloudflare."
+      }, 500);
+    }
   }
- }
 };
