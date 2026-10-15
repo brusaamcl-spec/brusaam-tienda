@@ -2153,6 +2153,41 @@ function renderCart() {
 
  const productsTotal = subtotal();
  const delivery = shipping();
+ 
+ let totalSavings = 0;
+
+ for (const [key, quantity] of Object.entries(cart)) {
+  const [id, kind] = key.split(':');
+
+  if (kind === 'manga') continue;
+
+  const product = store.products.find(
+   item => String(item.id) === id
+  );
+
+  if (!product) continue;
+
+  const minimum = Number(product.min_qty) || 2;
+
+  if (quantity >= minimum) {
+   const retailPrice = Number(product.retail);
+   const wholesalePrice = priceFor(
+    product, kind, quantity
+   );
+
+   totalSavings += Math.max(
+    0,
+    (retailPrice - wholesalePrice) * quantity
+   );
+  }
+ }
+
+ $('savingsTotal').textContent =
+  money(totalSavings);
+
+ $('savingsRow').style.display =
+  totalSavings > 0 ? 'flex' : 'none';
+
 
  $('subtotal').textContent =
   money(productsTotal);
