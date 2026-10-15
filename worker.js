@@ -906,14 +906,14 @@ ${admin ? "" : `
 <div class="banner">
  <div>🚚 BENEFICIO ESPECIAL</div>
  <strong>¡DESPACHO GRATIS!</strong>
- <div>La Serena y Coquimbo desde $30.000</div>
+ <div>✨La Serena y Coquimbo por compras sobre $30.000✨</div>
 </div>`}
 </header>
 <main>${content}</main>
 <footer>
 <div class="footerContent">
-<h3>Haz tus pedidos</h3>
-<p>Síguenos en nuestras redes sociales y contáctanos</p>
+<h3>HAZ TUS PEDIDOS AQUI</h3>
+<p>✨Síguenos en nuestras Redes Sociales y Contáctanos✨</p>
 <div class="social">
  <a href="https://wa.me/${BR.whatsapp}"
   target="_blank" rel="noopener noreferrer">
@@ -937,7 +937,7 @@ ${admin ? "" : `
  </a>
 </div>
 <p class="muted">
- Teléfono y WhatsApp: +56 9 6628 2007
+ CONTACTO: +56 9 6628 2007
 </p>
 <p class="footerAddress">📍 Dirección: Nueva Vida, Pan de Azúcar, Coquimbo</p>
 <p class="muted">
@@ -1072,7 +1072,7 @@ const SHOP = String.raw`
       <td><strong>Gratis</strong></td>
      </tr>
      <tr>
-      <td>Pan de Azúcar (Exepto cruz de caña)</td>
+      <td>Pan de Azúcar (Excluye Cruz de Caña)</td>
       <td><strong>Gratis</strong></td>
      </tr>
      <tr>
@@ -1085,13 +1085,13 @@ const SHOP = String.raw`
      </tr>
      <tr>
       <td>
-       La Serena y Coquimbo,
-       compras desde $30.000
+       La Serena/Coquimbo
+       Sobre $30.000
       </td>
       <td><strong>Gratis</strong></td>
      </tr>
      <tr>
-      <td>Otras regiones y comunas</td>
+      <td>Otras regiones/comunas</td>
       <td>Envío por pagar</td>
      </tr>
     </tbody>
@@ -1102,9 +1102,9 @@ const SHOP = String.raw`
  </div>
 
   <section class="panel" id="customerPanel">
-  <h3>👤 Datos del solicitante</h3>
+  <h3>👤 Datos del Solicitante</h3>
 
-  <label>Nombre y apellido *
+  <label>Nombre y Apellido *
    <input id="customer" maxlength="120">
   </label>
 
