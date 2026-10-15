@@ -900,19 +900,19 @@ footer{
 ${floralHeader}
 <img id="shopLogo" class="logo"
  src="${BR.logo}" alt="Logo Brusaam">
-<div class="slogan">Articulos de Limpieza y Cuidado Personal</div>
+<div class="slogan">Articulos de Limpieza y Cuidado Personal</strong>
 <strong>Al POR MAYOR Y DETALLE</strong>
 ${admin ? "" : `
 <div class="banner">
  <div>🚚 BENEFICIO ESPECIAL</div>
  <strong>¡DESPACHO GRATIS!</strong>
- <div>✨La Serena y Coquimbo por compras sobre $30.000✨</div>
+ <strong>✨La Serena y Coquimbo por compras sobre $30.000✨</strong>
 </div>`}
 </header>
 <main>${content}</main>
 <footer>
 <div class="footerContent">
-<h3>HAZ TUS PEDIDOS AQUI</h3>
+<h3>HAZ CLICK AQUI</h3>
 <p>✨Síguenos en nuestras Redes Sociales y Contáctanos✨</p>
 <div class="social">
  <a href="https://wa.me/${BR.whatsapp}"
