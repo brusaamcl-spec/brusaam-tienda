@@ -970,7 +970,7 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome">Bienvenido a Brusaam</h1>
+<h1 class="welcome">Bienvenido a Comercializadora Brusaam</h1>
 
 <div class="search">
  <span>⌕</span>
@@ -1110,12 +1110,9 @@ const SHOP = String.raw`
   <label>
    Modalidad (Retiro o Entrega a Domicilio) *
    <select id="mode">
-    <option value="delivery">
-     Entrega a Domicilio
-    </option>
-    <option value="pickup">
-     Retiro
-    </option>
+    <option value=>Selecciona Modalidad</option>
+    </option>"delivery">
+    </option>"pickup">
    </select>
   </label>
 
