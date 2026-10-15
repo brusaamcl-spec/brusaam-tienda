@@ -823,10 +823,9 @@ footer{
  letter-spacing:1px;
 }
 .social{
- display:flex;
- justify-content:center;
- flex-wrap:wrap;
- gap:10px;
+ display:inline-flex;
+ align-items:center;
+ gap:8px;
 }
 .social a{
  background:#F2EBFC;
@@ -916,18 +915,26 @@ ${admin ? "" : `
 <h3>Haz tus pedidos</h3>
 <p>Síguenos en nuestras redes sociales y contáctanos</p>
 <div class="social">
-<a href="https://wa.me/${BR.whatsapp}"
- target="_blank" rel="noopener noreferrer">
- 💬 WhatsApp
-</a>
-<a href="${BR.instagram}"
- target="_blank" rel="noopener noreferrer">
- 📸 Instagram
-</a>
-<a href="${BR.tiktok}"
- target="_blank" rel="noopener noreferrer">
- 🎵 TikTok
-</a>
+ <a href="https://wa.me/${BR.whatsapp}"
+  target="_blank" rel="noopener noreferrer">
+  <img src="https://cdn.simpleicons.org/whatsapp/25D366"
+   alt="" width="23" height="23">
+  WhatsApp
+ </a>
+
+ <a href="${BR.instagram}"
+  target="_blank" rel="noopener noreferrer">
+  <img src="https://cdn.simpleicons.org/instagram/E4405F"
+   alt="" width="23" height="23">
+  Instagram
+ </a>
+
+ <a href="${BR.tiktok}"
+  target="_blank" rel="noopener noreferrer">
+  <img src="https://cdn.simpleicons.org/tiktok/000000"
+   alt="" width="23" height="23">
+  TikTok
+ </a>
 </div>
 <p class="muted">
  Teléfono y WhatsApp: +56 9 6628 2007
@@ -1065,7 +1072,7 @@ const SHOP = String.raw`
       <td><strong>Gratis</strong></td>
      </tr>
      <tr>
-      <td>Pan de Azúcar</td>
+      <td>Pan de Azúcar (Exepto cruz de caña)</td>
       <td><strong>Gratis</strong></td>
      </tr>
      <tr>
