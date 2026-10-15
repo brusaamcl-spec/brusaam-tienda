@@ -2064,21 +2064,33 @@ function renderCart() {
   description.className = 'muted';
   information.append(description);
 
-  const unit = node(
-   'div',
-   'Unitario: ' +
-   money(priceFor(product, kind, quantity))
+  
+  const unitPrice = priceFor(
+   product, kind, quantity
   );
 
-  unit.className = 'muted';
-  information.append(unit);
+  const isWholesale =
+   kind !== 'manga' &&
+   quantity >= (Number(product.min_qty) || 2);
+
+  const priceType = node(
+   'div',
+   kind === 'manga'
+    ? 'Precio por manga aplicado'
+    : isWholesale
+      ? 'Precio por mayor aplicado'
+      : 'Precio al detalle'
+  );
+
+  priceType.className = isWholesale
+   ? 'cartWholesaleLabel'
+   : 'cartRetailLabel';
+
+  information.append(priceType);
 
   const total = node(
    'div',
-   money(
-    priceFor(product, kind, quantity) *
-    quantity
-   )
+   'Total: ' + money(unitPrice * quantity)
   );
 
   total.className = 'price';
