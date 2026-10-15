@@ -994,6 +994,68 @@ footer{
     padding: 10px 5px;
   }
 }
+
+/* PRECIO MAYORISTA EN CARRITO */
+.cartWholesaleLabel {
+  display: inline-block;
+  background: #EDE6FA;
+  color: #6331A8;
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 800;
+  margin: 7px 0;
+}
+
+/* PRECIO AL DETALLE */
+.cartRetailLabel {
+  display: inline-block;
+  background: #F1F3F8;
+  color: #53627B;
+  border-radius: 7px;
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 700;
+  margin: 7px 0;
+}
+
+/* AHORRO GENERAL */
+.cartSavingsSummary {
+  background: #EAF8F0;
+  color: #147746;
+  padding: 11px 9px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 800;
+  margin: 10px 0;
+}
+
+/* TÍTULO DEL CARRITO */
+#cartTitle {
+  font-size: 25px !important;
+  font-weight: 900;
+  color: #17366B;
+}
+
+/* MENSAJE DE CONFIRMACIÓN BRUSAAM */
+.confirmationMessage {
+  font-size: 17px !important;
+  font-weight: 700;
+  line-height: 1.6;
+  color: #243B70;
+  text-align: center;
+  margin: 16px 0 8px;
+  padding: 10px 12px;
+  background: #F1EDFA;
+  border-radius: 9px;
+}
+
+@media (max-width: 600px) {
+  .confirmationMessage {
+    font-size: 15px !important;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -1007,7 +1069,9 @@ ${admin ? "" : `
 <div class="banner">
  <div>🚚 BENEFICIO ESPECIAL</div>
  <strong>¡DESPACHO GRATIS!</strong>
- <div>✨La Serena y Coquimbo por compras sobre $30.000✨</div>
+<p class="freeShippingSubtitle">
+ ✨La Serena y Coquimbo · Compras sobre $30.000✨
+</p>
 </div>`}
 </header>
 <main>${content}</main>
@@ -1129,7 +1193,8 @@ const SHOP = String.raw`
 <div class="shopBottom">
  <aside class="shopRight">
   <section class="panel">
-   <h2>🛒 Mi carrito</h2>
+   
+<h2 id="cartTitle">🛒 MI CARRITO</h2>
 
    <div id="cartItems"></div>
 
@@ -1137,6 +1202,11 @@ const SHOP = String.raw`
     <span>Subtotal productos</span>
     <strong id="subtotal">$0</strong>
    </div>
+<div class="summary cartSavingsSummary"
+ id="savingsRow" style="display:none">
+ <span>💚 Ahorro total por mayor</span>
+ <strong id="savingsTotal">$0</strong>
+</div>
 
    <div class="summary">
     <span>Despacho</span>
@@ -1259,7 +1329,7 @@ const SHOP = String.raw`
    💬 Enviar pedido por WhatsApp
   </button>
 
-  <p class="muted">
+  <p class="confirmationMessage">
    Brusaam confirmará disponibilidad,
    pago y coordinación del pedido.
   </p>
@@ -1514,6 +1584,11 @@ function productCard(product) {
    }
   };
 
+  details.className =
+   presentation.value === 'manga'
+    ? 'muted'
+    : 'wholesalePrice';
+
   presentation.onchange = update;
 
   card.append(presentation, amount, details);
@@ -1534,7 +1609,7 @@ function productCard(product) {
    ': ' + money(product.wholesale) + ' c/u'
   );
 
-  wholesale.className = 'muted';
+  wholesale.className = 'wholesalePrice';
   card.append(wholesale);
  }
 
