@@ -29,24 +29,26 @@ const BR = {
 };
 
 const GROUPS = [
-  ["destacados", "Los más destacados", "⭐"],
-  ["pack_ahorro", "Pack Ahorro", "📦"],
-  ["ofertas", "Ofertas", "🏷️"],
-  ["box_pyme", "Box Pyme", "🏪"]
+  ["destacados", "LOS MAS DESTACADOS", "⭐"],
+  ["pack_ahorro", "PACK AHORRO", "📦"],
+  ["ofertas", "OFERTAS", "🏷️"],
+  ["box_pyme", "BOX PYME", "🏪"]
 ];
 
 const DEFAULT_CATEGORIES = {
-  "Limpieza del hogar": [
-    "Detergentes y suavizantes",
-    "Cloros y desinfectantes",
+  "Limpieza del Hogar": [
+    "Detergentes y Suavizantes",
+    "Cloros y Desinfectantes",
     "Lavalozas",
     "Limpiapisos",
     "Limpiavidrios y desengrasantes",
     "Ambientales",
+    "Insecticidas",
     "Otros de limpieza"
   ],
-  "Cuidado personal": [
-    "Shampoo y acondicionador",
+  "Cuidado Personal": [
+    "Shampoo",
+    "Acondicionador",
     "Jabones",
     "Desodorantes",
     "Cremas corporales",
@@ -56,13 +58,10 @@ const DEFAULT_CATEGORIES = {
   "Papelería": [
     "Papel higiénico",
     "Toallas de papel",
-    "Servilletas",
     "Otros de papelería"
   ],
-  "Otros productos": [
-    "Insecticidas",
+  "Otros Productos": [
     "Limpieza automotriz",
-    "Bolsas de basura",
     "Accesorios de limpieza",
     "Otros"
   ]
