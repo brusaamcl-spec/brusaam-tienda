@@ -1056,6 +1056,63 @@ footer{
   }
 }
 
+/* TEXTO SECUNDARIO DESPACHO GRATIS */
+.freeShippingSubtitle {
+  font-size: 17px !important;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: center;
+  color: #344A75;
+}
+
+@media (max-width: 600px) {
+  .freeShippingSubtitle {
+    font-size: 15px !important;
+  }
+}
+
+
+/* BRUSAAM - LETRAS DEL PIE DE PÁGINA */
+
+/* Textos generales del pie de página */
+footer p,
+footer .muted,
+footer small {
+  font-size: 15px !important;
+  line-height: 1.7 !important;
+}
+
+/* Mensaje Síguenos */
+footer .socialIntro {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: #243B70;
+}
+
+/* Contacto y dirección */
+footer .contactInfo {
+  font-size: 15px !important;
+  font-weight: 600;
+  color: #344A75;
+}
+
+/* Ajuste para celulares */
+@media (max-width: 600px) {
+  footer p,
+  footer .muted,
+  footer small {
+    font-size: 14px !important;
+    line-height: 1.6 !important;
+  }
+
+  footer .socialIntro {
+    font-size: 16px !important;
+  }
+
+  footer .contactInfo {
+    font-size: 14px !important;
+  }
+}
 </style>
 </head>
 <body>
