@@ -1,4 +1,3 @@
-
 /*
  BRUSAAM - TIENDA ONLINE
  Versión completa con diseño floral aprobado.
@@ -210,6 +209,7 @@ async function initialize(env) {
     ["destacados", "INTEGER NOT NULL DEFAULT 0"],
     ["pack_ahorro", "INTEGER NOT NULL DEFAULT 0"],
     ["ofertas", "INTEGER NOT NULL DEFAULT 0"],
+    ["offer_price", "INTEGER NOT NULL DEFAULT 0"],
     ["box_pyme", "INTEGER NOT NULL DEFAULT 0"],
     ["manga_price", "INTEGER NOT NULL DEFAULT 0"],
     ["packs_per_manga", "INTEGER NOT NULL DEFAULT 0"]
@@ -995,6 +995,19 @@ footer{
   }
 }
 
+/* PRECIO MAYORISTA EN FICHAS DE PRODUCTO */
+.wholesalePrice {
+  display: inline-block;
+  align-self: flex-start;
+  background: #F0E9FB;
+  color: #583198;
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 /* PRECIO MAYORISTA EN CARRITO */
 .cartWholesaleLabel {
   display: inline-block;
@@ -1129,7 +1142,7 @@ ${admin ? "" : `
 <footer>
 <div class="footerContent">
 <h3>HAZ CLICK AQUI</h3>
-<p>✨Síguenos en nuestras Redes Sociales y Contáctanos✨</p>
+<p class="socialIntro">✨Síguenos en nuestras Redes Sociales y Contáctanos✨</p>
 <div class="social">
  <a href="https://wa.me/${BR.whatsapp}"
   target="_blank" rel="noopener noreferrer">
@@ -1155,7 +1168,7 @@ ${admin ? "" : `
 <p class="muted">
  CONTACTO: +56 9 6628 2007
 </p>
-<p class="footerAddress">📍 Dirección: Nueva Vida, Pan de Azúcar, Coquimbo</p>
+<p class="footerAddress contactInfo">📍 Dirección: Nueva Vida, Pan de Azúcar, Coquimbo</p>
 <p class="muted">
  Instagram @comercializadora_brusaam
  · TikTok @com_brusaam
@@ -1335,7 +1348,7 @@ const SHOP = String.raw`
    <select id="mode">
     <option value="">Selecciona tu entrega</option>
     <option>Entrega a Domicilio</option>
-    <option>Retiro</option>
+    <option value="pickup">Retiro</option>
    </select>
   </label>
 
@@ -1491,6 +1504,9 @@ function priceFor(product, kind, quantity) {
  if (kind === 'manga') {
   return Number(product.manga_price);
  }
+ if (Number(product.ofertas) === 1 && Number(product.offer_price) > 0) {
+  return Number(product.offer_price);
+ }
 
  const minimum = Number(product.min_qty) || 2;
 
@@ -1615,7 +1631,10 @@ function productCard(product) {
   details.className = 'muted';
 
   const update = () => {
-   if (presentation.value === 'manga') {
+   if (presentation.value !== 'manga' && Number(product.ofertas) === 1 && Number(product.offer_price) > 0) {
+    amount.textContent = money(product.offer_price) + ' · OFERTA';
+    details.textContent = 'Antes: ' + money(product.retail) + ' por paquete';
+   } else if (presentation.value === 'manga') {
     amount.textContent =
      money(product.manga_price) + ' por manga';
 
@@ -1640,18 +1659,32 @@ function productCard(product) {
     ? 'muted'
     : 'wholesalePrice';
 
-  presentation.onchange = update;
+   presentation.onchange = () => {
+    update();
+    details.className = presentation.value === 'manga'
+     ? 'muted' : 'wholesalePrice';
+   };
 
   card.append(presentation, amount, details);
   update();
  } else {
+  const isOffer = Number(product.ofertas) === 1 && Number(product.offer_price) > 0;
   const amount = node(
    'div',
-   money(product.retail)
+   money(isOffer ? product.offer_price : product.retail)
   );
 
   amount.className = 'price';
   card.append(amount);
+  if (isOffer) {
+   const before = node('div', 'Antes: ' + money(product.retail));
+   before.style.textDecoration = 'line-through';
+   before.className = 'muted';
+   card.append(before);
+   const tag = node('strong', 'OFERTA · Ahorras ' + money(Math.max(0, Number(product.retail) - Number(product.offer_price))));
+   tag.style.color = '#c62828';
+   card.append(tag);
+  }
 
   const wholesale = node(
    'div',
@@ -1661,7 +1694,7 @@ function productCard(product) {
   );
 
   wholesale.className = 'wholesalePrice';
-  card.append(wholesale);
+  if (!isOffer) card.append(wholesale);
  }
 
  const stock = node(
@@ -1954,10 +1987,20 @@ function renderProducts() {
 
  const root = $('products');
  root.replaceChildren();
-
- for (const product of products) {
-  root.append(productCard(product));
- }
+ let shown = 0;
+ const more = node('button', 'Ver más productos');
+ more.type = 'button';
+ more.style.margin = '20px auto';
+ more.style.display = 'block';
+ const addPage = () => {
+  const next = products.slice(shown, shown + 24);
+  for (const product of next) root.append(productCard(product));
+  shown += next.length;
+  if (shown < products.length) root.append(more);
+  else more.remove();
+ };
+ more.onclick = () => { more.remove(); addPage(); };
+ addPage();
 }
 
 function subtotal() {
@@ -2012,7 +2055,7 @@ function shipping() {
   };
  }
 
- if (region === 'coquimbo' && isPanDeAzucarFree(address)) {
+ if (region === 'coquimbo' && commune === 'coquimbo' && isPanDeAzucarFree(address)) {
   return {type:'pan_free', amount:0, label:'Gratis (Pan de Azúcar)'};
  }
 
@@ -2121,12 +2164,15 @@ function renderCart() {
   );
 
   const isWholesale =
+   !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) &&
    kind !== 'manga' &&
    quantity >= (Number(product.min_qty) || 2);
 
   const priceType = node(
    'div',
-   kind === 'manga'
+   Number(product.ofertas) === 1 && Number(product.offer_price) > 0
+    ? 'Precio de oferta aplicado'
+    : kind === 'manga'
     ? 'Precio por manga aplicado'
     : isWholesale
       ? 'Precio por mayor aplicado'
@@ -2220,7 +2266,7 @@ function renderCart() {
 
   const minimum = Number(product.min_qty) || 2;
 
-  if (quantity >= minimum) {
+  if (quantity >= minimum && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0)) {
    const retailPrice = Number(product.retail);
    const wholesalePrice = priceFor(
     product, kind, quantity
@@ -2351,6 +2397,11 @@ $('checkout').onclick = () => {
   return;
  }
 
+ if (!$('mode').value) {
+  alert('Selecciona retiro o entrega a domicilio.');
+  return;
+ }
+
  const pickup = $('mode').value === 'pickup';
 
  const address = $('address').value.trim();
@@ -2368,67 +2419,80 @@ $('checkout').onclick = () => {
  }
 
  const lines = [];
+ let savings = 0;
 
  for (const [key, quantity] of Object.entries(cart)) {
   const [id, kind] = key.split(':');
-
   const product = store.products.find(
    item => String(item.id) === id
   );
-
   if (!product) continue;
 
-  const presentation =
-   kind === 'manga'
-    ? 'Manga (' +
-      product.packs_per_manga +
-      ' paquetes)'
-    : paperProduct(product)
-      ? 'Paquete'
-      : 'Unidad';
+  const unitPrice = priceFor(product, kind, quantity);
+  const lineTotal = unitPrice * quantity;
+  const wholesale = !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) && kind !== 'manga' &&
+   quantity >= (Number(product.min_qty) || 2);
 
-  const unitPrice = priceFor(
-   product,
-   kind,
-   quantity
-  );
+  if (wholesale) {
+   savings += Math.max(
+    0,
+    (Number(product.retail) - unitPrice) * quantity
+   );
+  }
+
+  const presentation = kind === 'manga'
+   ? 'manga(s) (' + product.packs_per_manga + ' paquetes por manga)'
+   : paperProduct(product) ? 'paquete(s)' : 'unidad(es)';
 
   lines.push(
-   quantity +
-   ' x ' + product.name +
-   ' [' + presentation + ']' +
-   ' | Unitario: ' + money(unitPrice) +
-   ' | Subtotal: ' +
-   money(unitPrice * quantity)
+   '*' + product.name + '*',
+   'Cantidad: ' + quantity + ' ' + presentation,
+   '*Total del producto: ' + money(lineTotal) + '*',
+   '------------------------------'
   );
  }
 
  const delivery = shipping();
+ const productsTotal = subtotal();
+ const finalTotal = delivery.amount === null
+  ? null : productsTotal + delivery.amount;
 
  const message = [
-  'Hola Brusaam, quiero realizar este pedido:',
+  '*BRUSAAM | SOLICITUD DE PEDIDO*',
   '',
+  '*PRODUCTOS SOLICITADOS*',
+  '------------------------------',
   ...lines,
   '',
-  'Subtotal productos: ' +
-   money(subtotal()),
+  '*RESUMEN DE COMPRA*',
+  'Subtotal de productos: ' + money(productsTotal),
+  ...(savings > 0
+   ? ['Ahorro por compras al por mayor: ' + money(savings) + ' (ya aplicado)']
+   : []),
   'Despacho: ' + delivery.label,
-  delivery.amount === null
-   ? 'Total productos sin transporte: ' +
-     money(subtotal())
-   : 'Total: ' +
-     money(subtotal() + delivery.amount),
+  finalTotal === null
+   ? '*TOTAL PRODUCTOS: ' + money(productsTotal) + '*'
+   : '*TOTAL A PAGAR: ' + money(finalTotal) + '*',
+  ...(finalTotal === null
+   ? ['El valor del despacho está pendiente de confirmación.',
+      'El total final se confirmará al coordinar el envío.']
+   : []),
   '',
-  'Solicitante: ' + customer,
+  '------------------------------',
+  '*DATOS DEL SOLICITANTE*',
+  'Nombre: ' + customer,
   'Modalidad: ' +
-   (pickup ? 'Retiro' : 'Entrega a Domicilio'),
+   (pickup ? 'Retiro en tienda' : 'Entrega a domicilio'),
   ...(!pickup
    ? [
      'Dirección: ' + address,
-     'Región: ' + region,
-     'Comuna: ' + commune
+     'Comuna: ' + commune,
+     'Región: ' + region
     ]
-   : [])
+   : []),
+  '',
+  '------------------------------',
+  'Brusaam confirmará disponibilidad, pago y coordinación del pedido.'
  ].join('\n');
 
  window.location.href =
@@ -2582,6 +2646,11 @@ const ADMIN = String.raw`
     <label>URL de fotografía
      <input id="pImage" type="url">
     </label>
+
+    <label>Precio de oferta (CLP)
+     <input id="pOfferPrice" type="number" min="0" value="0">
+    </label>
+    <p class="notice">Activa Ofertas para aplicar este precio único, sin descuentos mayoristas adicionales. Para papel higiénico, la oferta se aplica al paquete; la manga conserva su precio propio.</p>
 
     <h3>Secciones especiales</h3>
 
@@ -3045,6 +3114,7 @@ function clearProduct() {
  $('pImage').value = '';
  $('pMin').value = '2';
  $('pMangaPrice').value = '0';
+ $('pOfferPrice').value = '0';
  $('pPacksPerManga').value = '0';
  $('pActive').checked = true;
 
@@ -3066,6 +3136,7 @@ function renderProducts() {
 
    $('pRetail').value = product.retail;
    $('pWholesale').value = product.wholesale;
+   $('pOfferPrice').value = product.offer_price || 0;
    $('pMin').value = product.min_qty || 2;
    $('pStock').value = product.stock;
    $('pImage').value = product.image || '';
@@ -3177,6 +3248,7 @@ $('productForm').onsubmit = async event => {
   description: $('pDescription').value,
   retail: Number($('pRetail').value),
   wholesale: Number($('pWholesale').value),
+  offer_price: Number($('pOfferPrice').value),
   min_qty: Number($('pMin').value),
   stock: Number($('pStock').value),
   image: $('pImage').value.trim(),
@@ -3714,6 +3786,8 @@ function validProduct(product) {
     product.description.length > 1000 ||
     !validInteger(product.retail) ||
     !validInteger(product.wholesale) ||
+    !validInteger(product.offer_price) ||
+    (product.ofertas && (product.offer_price <= 0 || product.offer_price >= product.retail)) ||
     !validInteger(product.min_qty, 1) ||
     !validInteger(product.stock) ||
     !validInteger(product.manga_price) ||
@@ -4191,11 +4265,11 @@ export default {
            min_qty,stock,image,active,
            destacados,pack_ahorro,
            ofertas,box_pyme,
-           manga_price,packs_per_manga
+           manga_price,packs_per_manga,offer_price
           )
           VALUES(
            ?,?,?,?,?,?,?,?,?,?,
-           ?,?,?,?,?,?
+           ?,?,?,?,?,?,?
           )
         `).bind(
           product.name.trim(),
@@ -4213,7 +4287,8 @@ export default {
           product.ofertas ? 1 : 0,
           product.box_pyme ? 1 : 0,
           product.manga_price,
-          product.packs_per_manga
+          product.packs_per_manga,
+          product.offer_price
         ).run();
 
         return reply({
@@ -4252,7 +4327,8 @@ export default {
            ofertas=?,
            box_pyme=?,
            manga_price=?,
-           packs_per_manga=?
+           packs_per_manga=?,
+           offer_price=?
           WHERE id=?
         `).bind(
           product.name.trim(),
@@ -4271,6 +4347,7 @@ export default {
           product.box_pyme ? 1 : 0,
           product.manga_price,
           product.packs_per_manga,
+          product.offer_price,
           Number(productId[1])
         ).run();
 
