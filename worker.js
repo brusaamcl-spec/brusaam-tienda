@@ -1111,8 +1111,8 @@ const SHOP = String.raw`
    Modalidad (Retiro o Entrega a Domicilio) *
    <select id="mode">
     <option value=>Selecciona Modalidad</option>
-    </option>"delivery">
-    </option>"pickup">
+    </option>delibery</option>
+    </option>pickup</option>
    </select>
   </label>
 
