@@ -900,7 +900,7 @@ footer{
 ${floralHeader}
 <img id="shopLogo" class="logo"
  src="${BR.logo}" alt="Logo Brusaam">
-<div class="slogan">La excelencia en tu hogar</div>
+<div class="slogan">Articulos de Limpieza y Cuidado Personal al por mayor y al detalle</div>
 ${admin ? "" : `
 <div class="banner">
  <div>🚚 BENEFICIO ESPECIAL</div>
@@ -1110,7 +1110,7 @@ const SHOP = String.raw`
   <label>
    Modalidad (Retiro o Entrega a Domicilio) *
    <select id="mode">
-    <option value="">Selecciona Modalidad</option>
+    <option value="">Selecciona tu entrega</option>
     <option>Entrega a Domicilio</option>
     <option>Retiro</option>
    </select>
