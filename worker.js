@@ -900,7 +900,8 @@ footer{
 ${floralHeader}
 <img id="shopLogo" class="logo"
  src="${BR.logo}" alt="Logo Brusaam">
-<div class="slogan">Articulos de Limpieza y Cuidado Personal al por mayor y al detalle</div>
+<div class="slogan">Articulos de Limpieza y Cuidado Personal</div>
+<strong>Al POR MAYOR Y DETALLE</strong>
 ${admin ? "" : `
 <div class="banner">
  <div>🚚 BENEFICIO ESPECIAL</div>
