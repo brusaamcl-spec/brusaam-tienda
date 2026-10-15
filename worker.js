@@ -893,6 +893,107 @@ footer{
  .filters{grid-template-columns:1fr}
  .banner strong{font-size:19px}
 }
+
+/* BRUSAAM - MEJORAS VISUALES */
+
+/* Logo más grande */
+.flowerHeader .logo {
+  width: min(330px, 78%) !important;
+  max-height: 220px !important;
+  height: auto;
+  margin: 12px auto 8px;
+  object-fit: contain;
+}
+
+/* Eslogan más visible */
+.flowerHeader .slogan {
+  font-size: 18px !important;
+  font-weight: 700;
+  color: #243A70;
+  letter-spacing: 0.3px;
+  line-height: 1.5;
+  padding: 0 12px;
+}
+
+/* Banner de despacho horizontal */
+.flowerHeader .banner {
+  width: calc(100% - 32px);
+  max-width: 1280px !important;
+  box-sizing: border-box;
+  margin: 20px auto 16px;
+  padding: 20px 16px;
+  border-radius: 16px;
+  background: linear-gradient(
+    100deg,
+    #EDF8FF,
+    #F1E8FF,
+    #EDF8FF
+  );
+  text-align: center;
+  font-size: 16px;
+}
+
+.flowerHeader .banner strong {
+  font-size: clamp(23px, 4vw, 34px) !important;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+/* Fotografías llenan las tarjetas */
+.tiles .tile img {
+  display: block;
+  width: 100%;
+  height: 160px;
+  padding: 0 !important;
+  object-fit: cover !important;
+  object-position: center;
+}
+
+/* Nombres grandes y en mayúsculas */
+.tiles .tile strong {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 65px;
+  padding: 12px 7px;
+  box-sizing: border-box;
+  font-size: 19px !important;
+  font-weight: 900;
+  line-height: 1.25;
+  text-transform: uppercase;
+  text-align: center;
+  color: #142D65;
+}
+
+/* Ajustes para celulares */
+@media (max-width: 600px) {
+  .flowerHeader .logo {
+    width: 78% !important;
+    max-height: 190px !important;
+  }
+
+  .flowerHeader .slogan {
+    font-size: 16px !important;
+  }
+
+  .flowerHeader .banner {
+    width: calc(100% - 20px);
+    margin: 16px auto;
+    padding: 18px 10px;
+    border-radius: 13px;
+    font-size: 14px;
+  }
+
+  .tiles .tile img {
+    height: 145px !important;
+  }
+
+  .tiles .tile strong {
+    font-size: 16px !important;
+    min-height: 68px;
+    padding: 10px 5px;
+  }
+}
 </style>
 </head>
 <body>
