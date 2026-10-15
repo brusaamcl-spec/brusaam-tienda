@@ -1055,7 +1055,6 @@ footer{
     font-size: 15px !important;
   }
 }
-
 /* TEXTO SECUNDARIO DESPACHO GRATIS */
 .freeShippingSubtitle {
   font-size: 17px !important;
@@ -1070,8 +1069,6 @@ footer{
     font-size: 15px !important;
   }
 }
-
-
 /* BRUSAAM - LETRAS DEL PIE DE PÁGINA */
 
 /* Textos generales del pie de página */
@@ -1081,21 +1078,18 @@ footer small {
   font-size: 15px !important;
   line-height: 1.7 !important;
 }
-
 /* Mensaje Síguenos */
 footer .socialIntro {
   font-size: 17px !important;
   font-weight: 700 !important;
   color: #243B70;
 }
-
 /* Contacto y dirección */
 footer .contactInfo {
   font-size: 15px !important;
   font-weight: 600;
   color: #344A75;
 }
-
 /* Ajuste para celulares */
 @media (max-width: 600px) {
   footer p,
