@@ -498,10 +498,10 @@ const FLORAL_BOTTOM = `
 
 function htmlPage(content, admin = false) {
   const floralHeader = admin ? "" :
-    `<div class="headerDesign"><img src="https://res.cloudinary.com/oobzcqc2/image/upload/phekttrxgumvglym7b2h" alt="Ondas decorativas Brusaam"></div>`;
+    `<div class="headerDesign">${FLORAL_TOP}</div>`
 
   const floralFooter = admin ? "" :
-    `<div class="footerDesign"><img src="https://res.cloudinary.com/oobzcqc2/image/upload/phekttrxgumvglym7b2h" alt="Ondas decorativas Brusaam" loading="lazy"></div>`;
+    `<div class="footerDesign">${FLORAL_BOTTOM}</div>`
 
   return new Response(`<!doctype html>
 <html lang="es">
