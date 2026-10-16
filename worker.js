@@ -30,10 +30,10 @@ const BR = {
 
 const GROUPS = [
   ["destacados", "LOS MAS DESTACADOS", "⭐"],
-  ["pack_ahorro", "PACK AHORRO", "📦"],
   ["ofertas", "OFERTAS", "🏷️"],
-  ["box_pyme", "BOX PYME", "🏪"],
-  ["nuevos_ingresos", "NUEVOS INGRESOS", "✨"]
+  ["nuevos_ingresos", "NUEVOS INGRESOS", "✨"],
+  ["pack_ahorro", "PACK AHORRO", "📦"],
+  ["box_pyme", "BOX PYME", "🏪"]
 ];
 
 const DEFAULT_CATEGORIES = {
@@ -364,7 +364,7 @@ async function getData(env, admin = false) {
     `).all(),
 
     env.DB.prepare(`
-      SELECT * FROM shop_sections
+      SELECT * FROM shop_sections ORDER BY CASE slug WHEN 'destacados' THEN 1 WHEN 'ofertas' THEN 2 WHEN 'nuevos_ingresos' THEN 3 WHEN 'pack_ahorro' THEN 4 WHEN 'box_pyme' THEN 5 ELSE 6 END
     `).all(),
 
     env.DB.prepare(`
@@ -1000,6 +1000,21 @@ footer{
   }
 }
 
+/* BRUSAAM: fotografías completas sin recortes, también en celulares */
+.tiles .tile img, .tiles .tile img.brusaamPhoto,
+.product img, .adminRow img,
+.brusaamSectionPhoto {
+ object-fit:contain !important;
+ object-position:center !important;
+ background:#fff !important;
+}
+.tiles .tile img {padding:6px !important;box-sizing:border-box}
+.brusaamSectionPhoto {display:block;width:100%;height:160px;padding:6px;box-sizing:border-box}
+@media(max-width:600px){.brusaamSectionPhoto{height:145px}}
+.brusaamSectionTile {position:relative}
+.brusaamSectionTile .brusaamSectionPhoto {transition:opacity .24s ease}
+.brusaamSectionTile .brusaamSectionPhoto.isChanging {opacity:.25}
+
 /* PRECIO MAYORISTA EN FICHAS DE PRODUCTO */
 .wholesalePrice {
   display: inline-block;
@@ -1140,6 +1155,10 @@ footer .contactInfo {
  color:#293348;text-align:center;min-width:0;}
 .brusaamSlide img{display:block;width:100%;height:175px;object-fit:contain;}
 .brusaamSlide strong{font-size:14px;line-height:1.35;}
+.brusaamSectionTile{display:flex;flex-direction:column;align-items:center;gap:9px;padding:12px;min-height:0;}
+.brusaamSectionTile strong{order:0;font-size:14px;text-align:center;}
+.brusaamSectionPhoto{order:1;width:100%;height:150px;object-fit:contain;}
+.brusaamSectionTile span{order:2;font-size:12px;color:#287d95;font-weight:700;}
 .brusaamSlide:hover{border-color:#8ccdd7;box-shadow:0 3px 12px #00000012;}
 @media(max-width:600px){.brusaamSlide{flex-basis:65%;}.brusaamSlide img{height:160px;}}
 @media(prefers-reduced-motion:reduce){.brusaamCarousel{scroll-behavior:auto;}}
@@ -1291,7 +1310,7 @@ const SHOP = String.raw`
    </div>
 <div class="summary cartSavingsSummary"
  id="savingsRow" style="display:none">
- <span>💚 Ahorro total por mayor</span>
+ <span>💚 Descuentos Aplicados</span>
  <strong id="savingsTotal">$0</strong>
 </div>
 
@@ -1461,6 +1480,7 @@ function photo(url, alt) {
  element.src = url;
  element.alt = alt;
  element.loading = 'lazy';
+ element.decoding = 'async';
  return element;
 }
 
@@ -1636,6 +1656,29 @@ function productCard(product) {
  quantity.min = '1';
  quantity.step = '1';
  quantity.value = '1';
+ quantity.style.cssText = 'width:65px;text-align:center;margin:0';
+ const qtyControls = node('div');
+ qtyControls.className = 'flex';
+ qtyControls.style.cssText = 'align-items:center;gap:8px;justify-content:center;margin:9px 0';
+ const qtyMinus = node('button', '−');
+ const qtyPlus = node('button', '+');
+ qtyMinus.type = qtyPlus.type = 'button';
+ qtyMinus.className = qtyPlus.className = 'small';
+ const maxQty = () => {
+  const packSize = presentation && presentation.value === 'manga'
+   ? Math.max(1, Number(product.packs_per_manga)) : 1;
+  return Math.max(0, Math.floor((Number(product.stock) - stockUsed(product.id)) / packSize));
+ };
+ const clampQty = value => {
+  const max = maxQty();
+  quantity.value = String(max ? Math.min(max, Math.max(1, Math.trunc(Number(value) || 1))) : 0);
+  qtyMinus.disabled = Number(quantity.value) <= 1;
+  qtyPlus.disabled = Number(quantity.value) >= max;
+ };
+ qtyMinus.onclick = () => clampQty(Number(quantity.value) - 1);
+ qtyPlus.onclick = () => clampQty(Number(quantity.value) + 1);
+ quantity.onchange = () => clampQty(quantity.value);
+ qtyControls.append(qtyMinus, quantity, qtyPlus);
 
  let presentation = null;
 
@@ -1687,6 +1730,7 @@ function productCard(product) {
     : 'wholesalePrice';
 
    presentation.onchange = () => {
+    clampQty(quantity.value);
     update();
     details.className = presentation.value === 'manga'
      ? 'muted' : 'wholesalePrice';
@@ -1715,9 +1759,7 @@ function productCard(product) {
 
   const wholesale = node(
    'div',
-   'Mayor desde ' +
-   (product.min_qty || 2) +
-   ': ' + money(product.wholesale) + ' c/u'
+   money(product.wholesale) + ' c/u desde ' + (product.min_qty || 2) + 'un'
   );
 
   wholesale.className = 'wholesalePrice';
@@ -1738,6 +1780,8 @@ function productCard(product) {
  add.disabled = Number(product.stock) < 1;
 
  add.onclick = () => {
+  clampQty(quantity.value);
+  if (Number(quantity.value) < 1) return;
   addToCart(
    product.id,
    presentation ? presentation.value : 'pack',
@@ -1745,109 +1789,76 @@ function productCard(product) {
   );
  };
 
- card.append(stock, quantity, add);
+ card.append(stock, qtyControls, add);
+ clampQty(1);
 
  return card;
 }
 
+let sectionTimers = [];
+function stopSectionTimers() {
+ for (const timer of sectionTimers) clearInterval(timer);
+ sectionTimers = [];
+}
 function renderHome() {
+ stopSectionTimers();
  const categoryRoot = $('categoryTiles');
  categoryRoot.replaceChildren();
-
- const icons = {
-  'Limpieza del hogar': '🧴',
-  'Cuidado personal': '🧼',
-  'Papelería': '🧻',
-  'Otros productos': '📦'
- };
-
+ const icons = {'Limpieza del hogar':'🧴','Cuidado personal':'🧼','Papelería':'🧻','Otros productos':'📦'};
  for (const category of store.categories) {
-  categoryRoot.append(makeTile(
-   category.name,
-   category.image,
-   icons[category.name] || '📁',
-   () => openCategory(category.name)
-  ));
+  categoryRoot.append(makeTile(category.name,category.image,icons[category.name]||'📁',
+   () => openCategory(category.name)));
  }
-
- const sectionRoot = $('sectionTiles');
- sectionRoot.replaceChildren();
-
- const sectionIcons = {
-  destacados: '⭐',
-  pack_ahorro: '📦',
-  ofertas: '🏷️',
-  box_pyme: '🏪',
-  nuevos_ingresos: '✨'
- };
-
- for (const section of store.sections) {
-  sectionRoot.append(makeTile(
-   section.title,
-   section.image,
-   sectionIcons[section.slug] || '📦',
-   () => openSection(section.slug)
-  ));
- }
-
- const featuredRoot = $('featuredAreas');
- for (const oldPanel of featuredRoot.children) {
-  if (oldPanel._brusaamTimer) clearInterval(oldPanel._brusaamTimer);
- }
- featuredRoot.replaceChildren();
-
- for (const section of store.sections) {
+ const root = $('sectionTiles');
+ root.replaceChildren();
+ root.style.display = '';
+ $('featuredAreas').replaceChildren();
+ const order = ['destacados','ofertas','nuevos_ingresos','pack_ahorro','box_pyme'];
+ for (const slug of order) {
+  const section = store.sections.find(item => item.slug === slug);
+  if (!section) continue;
   const products = store.products.filter(product =>
-   Number(product[section.slug]) === 1 &&
-   Number(product.active) !== 0
-  );
-
-  if (!products.length) continue;
-
-  const panel = node('section');
-  panel.className = 'panel featuredPanel';
-  const heading = node('div');
-  heading.className = 'flex';
-  const title = node('h2', section.title);
-  title.className = 'grow';
-  const more = node('button', 'Ver todos →');
-  more.className = 'secondary';
-  more.onclick = () => openSection(section.slug);
-  heading.append(title, more);
-  panel.append(heading);
-
-  const carousel = node('div');
-  carousel.className = 'brusaamCarousel';
-  carousel.setAttribute('aria-label', 'Productos de ' + section.title);
-
-  for (const product of products) {
-   const slide = node('button');
-   slide.type = 'button';
-   slide.className = 'brusaamSlide';
-   slide.setAttribute('aria-label', 'Ver ' + product.name + ' en ' + section.title);
-   if (product.image) slide.append(photo(product.image, product.name));
-   else slide.append(node('div', '📦'));
-   slide.append(node('strong', product.name));
-   slide.onclick = () => openSection(section.slug);
-   carousel.append(slide);
+   Number(product[slug]) === 1 && Number(product.active) !== 0 && product.image);
+  const tile = node('button');
+  tile.type = 'button';
+  tile.className = 'tile brusaamSectionTile';
+  tile.setAttribute('aria-label','Ver todos los productos de '+section.title);
+  tile.onclick = () => openSection(slug);
+  const img = photo(products[0]?.image || section.image || '',section.title);
+  img.className = 'brusaamSectionPhoto';
+  if (!img.src || (!products.length && !section.image)) {
+   img.removeAttribute('src');
+   img.alt = 'Sin fotografía disponible';
   }
-
-  panel.append(carousel);
-  featuredRoot.append(panel);
+  tile.append(node('strong',section.title),img,node('span','Ver todos →'));
+  root.append(tile);
   if (products.length > 1) {
    let index = 0;
-   const advance = () => {
-    if (!panel.isConnected || $('home').classList.contains('hidden')) return;
-    index = (index + 1) % products.length;
-    carousel.children[index].scrollIntoView({
-     behavior: 'smooth', block: 'nearest', inline: 'start'
-    });
-   };
-   // Un temporizador por carrusel, sin duplicarlo al recargar el catálogo.
-   const timer = setInterval(advance, 4000);
-   panel._brusaamTimer = timer;
+   const timer = setInterval(() => {
+    if (!tile.isConnected || document.hidden) return;
+    index = (index+1)%products.length;
+    img.src = products[index].image;
+    img.alt = products[index].name;
+   },3800);
+   sectionTimers.push(timer);
+   // Deslizar horizontalmente la fotografía sin abrir la sección.
+   let touchX = null;
+   tile.addEventListener('touchstart',event => {
+    touchX = event.touches[0]?.clientX ?? null;
+   },{passive:true});
+   tile.addEventListener('touchend',event => {
+    if (touchX === null) return;
+    const distance = (event.changedTouches[0]?.clientX ?? touchX)-touchX;
+    touchX = null;
+    if (Math.abs(distance)<35) return;
+    index = (index+(distance<0?1:products.length-1))%products.length;
+    img.src = products[index].image;
+    img.alt = products[index].name;
+    tile.dataset.swiped = '1';
+    setTimeout(()=>delete tile.dataset.swiped,350);
+   },{passive:true});
+   tile.onclick = () => {if (!tile.dataset.swiped) openSection(slug)};
   }
-
  }
 }
 
@@ -1925,81 +1936,74 @@ function renderSubTiles(categoryName) {
  }
 }
 
-function openCategory(category, sub = '') {
+function setRoute(route, push = true) {
+ if (push) history.pushState({brusaamRoute:route},'',route === 'home' ? '/' : '#'+encodeURIComponent(route));
+}
+function openCategory(category, sub = '', push = true) {
  currentSection = '';
-
  $('search').value = '';
  $('home').classList.add('hidden');
-
  $('filterCategory').value = category;
  fillSubcategories(sub);
-
  $('catalogTitle').textContent = sub || category;
  $('backHome').textContent = sub ? '← Volver a la categoría' : '← Volver al inicio';
-
- renderSubTiles(category);
+ if (sub) $('subTiles').replaceChildren();
+ else renderSubTiles(category);
+ const filters = document.querySelector('.filters');
+ if (filters) filters.classList.toggle('hidden',!sub);
+ setRoute('category:'+category+(sub?'|'+sub:''),push);
  renderProducts();
-
- $('catalogSection').scrollIntoView({
-  behavior: 'smooth'
- });
+ $('catalogSection').scrollIntoView({behavior:'smooth'});
 }
-
-function openSection(slug) {
+function openSection(slug,push=true) {
  currentSection = slug;
-
  $('search').value = '';
  $('home').classList.add('hidden');
-
  $('filterCategory').value = '';
  fillSubcategories();
-
  $('subTiles').replaceChildren();
-
- const section = store.sections.find(
-  item => item.slug === slug
- );
-
- $('catalogTitle').textContent =
-  section?.title || 'Productos';
+ const filters = document.querySelector('.filters');
+ if (filters) filters.classList.add('hidden');
+ const section = store.sections.find(item=>item.slug===slug);
+ $('catalogTitle').textContent = section?.title || 'Productos';
  $('backHome').textContent = '← Volver al inicio';
-
+ setRoute('section:'+slug,push);
  renderProducts();
-
- $('catalogSection').scrollIntoView({
-  behavior: 'smooth'
- });
+ $('catalogSection').scrollIntoView({behavior:'smooth'});
 }
-
-function home() {
+function home(push=true) {
  currentSection = '';
-
  $('search').value = '';
  $('filterCategory').value = '';
-
  fillSubcategories();
-
- $('catalogTitle').textContent =
-  'Todos los productos';
+ $('catalogTitle').textContent = 'Todos los productos';
  $('backHome').textContent = '← Volver al inicio';
-
  $('subTiles').replaceChildren();
  $('home').classList.remove('hidden');
-
+ const filters = document.querySelector('.filters');
+ if (filters) filters.classList.add('hidden');
+ setRoute('home',push);
  renderProducts();
-
- window.scrollTo({
-  top: 0,
-  behavior: 'smooth'
- });
+ window.scrollTo({top:0,behavior:'smooth'});
 }
+window.addEventListener('popstate',event => {
+ const route = event.state?.brusaamRoute || decodeURIComponent(location.hash.slice(1)) || 'home';
+ if (route.startsWith('category:')) {
+  const [category,sub=''] = route.slice(9).split('|');
+  openCategory(category,sub,false);
+ } else if (route.startsWith('section:')) {
+  openSection(route.slice(8),false);
+ } else home(false);
+});
 
 function renderProducts() {
  const query = normalized($('search').value);
  const category = $('filterCategory').value;
  const sub = $('filterSub').value;
 
+ const folderOnly = !!category && !sub && !currentSection && !query;
  const products = store.products.filter(product => {
+  if (folderOnly) return false;
   if (!currentSection && Number(product.special_only) === 1) return false;
   if (
    currentSection &&
@@ -2032,13 +2036,13 @@ function renderProducts() {
   return searchable.includes(query);
  });
 
- $('count').textContent =
+ $('count').textContent = folderOnly ? 'Selecciona una subcategoría para ver sus productos' :
   products.length + ' producto(s) encontrado(s)';
 
  const root = $('products');
  root.replaceChildren();
  let shown = 0;
- const more = node('button', 'Ver más');
+ const more = node('button', 'Ver más productos');
  more.type = 'button';
  more.style.margin = '20px auto';
  more.style.display = 'block';
@@ -2157,6 +2161,19 @@ function shipping() {
  };
 }
 
+function discountFor(product, kind, quantity) {
+ const paid = priceFor(product, kind, quantity);
+ const offer = Number(product.ofertas) === 1 &&
+  Number(kind === 'manga' ? product.offer_manga_price : product.offer_price) > 0;
+ const base = kind === 'manga' ? Number(product.manga_price) : Number(product.retail);
+ if (offer) return Math.max(0, (base - paid) * quantity);
+ if (kind !== 'manga' && Number(product.special_only) !== 1 &&
+  quantity >= (Number(product.min_qty) || 2)) {
+  return Math.max(0, (base - paid) * quantity);
+ }
+ return 0;
+}
+
 function renderCart() {
  const root = $('cartItems');
  root.replaceChildren();
@@ -2228,7 +2245,7 @@ function renderCart() {
     : kind === 'manga'
     ? 'Precio por manga aplicado'
     : isWholesale
-      ? 'Precio por mayor aplicado'
+      ? 'Precio por mayor'
       : 'Precio al detalle'
   );
 
@@ -2305,31 +2322,10 @@ function renderCart() {
  const delivery = shipping();
  
  let totalSavings = 0;
-
  for (const [key, quantity] of Object.entries(cart)) {
   const [id, kind] = key.split(':');
-
-  if (kind === 'manga') continue;
-
-  const product = store.products.find(
-   item => String(item.id) === id
-  );
-
-  if (!product) continue;
-
-  const minimum = Number(product.min_qty) || 2;
-
-  if (Number(product.special_only) !== 1 && quantity >= minimum && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0)) {
-   const retailPrice = Number(product.retail);
-   const wholesalePrice = priceFor(
-    product, kind, quantity
-   );
-
-   totalSavings += Math.max(
-    0,
-    (retailPrice - wholesalePrice) * quantity
-   );
-  }
+  const product = store.products.find(item => String(item.id) === id);
+  if (product) totalSavings += discountFor(product, kind, quantity);
  }
 
  $('savingsTotal').textContent =
@@ -2386,6 +2382,7 @@ $('search').oninput = () => {
   $('catalogTitle').textContent =
 
    'Resultados de búsqueda';
+  document.querySelector('.filters')?.classList.remove('hidden');
   $('backHome').textContent = '← Volver al inicio';
  } else {
   home();
@@ -2395,16 +2392,16 @@ $('search').oninput = () => {
 };
 
 $('filterCategory').onchange = () => {
- currentSection = '';
- fillSubcategories();
-
- $('subTiles').replaceChildren();
- $('catalogTitle').textContent = 'Productos';
-
- renderProducts();
+ const category = $('filterCategory').value;
+ if (category) openCategory(category);
+ else home();
 };
 
-$('filterSub').onchange = renderProducts;
+$('filterSub').onchange = () => {
+ const category = $('filterCategory').value;
+ if (category) openCategory(category,$('filterSub').value);
+ else renderProducts();
+};
 $('backHome').onclick = () => {
  if ($('filterSub').value && $('filterCategory').value && !currentSection) {
   openCategory($('filterCategory').value);
@@ -2483,15 +2480,7 @@ $('checkout').onclick = () => {
 
   const unitPrice = priceFor(product, kind, quantity);
   const lineTotal = unitPrice * quantity;
-  const wholesale = Number(product.special_only) !== 1 && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) && kind !== 'manga' &&
-   quantity >= (Number(product.min_qty) || 2);
-
-  if (wholesale) {
-   savings += Math.max(
-    0,
-    (Number(product.retail) - unitPrice) * quantity
-   );
-  }
+  savings += discountFor(product, kind, quantity);
 
   const presentation = kind === 'manga'
    ? 'manga(s) (' + product.packs_per_manga + ' paquetes por manga)'
@@ -2520,7 +2509,7 @@ $('checkout').onclick = () => {
   '*RESUMEN DE COMPRA*',
   'Subtotal de productos: ' + money(productsTotal),
   ...(savings > 0
-   ? ['Ahorro por compras al por mayor: ' + money(savings) + ' (ya aplicado)']
+   ? ['Descuentos Aplicados: ' + money(savings) + ' (ya incluidos)']
    : []),
   'Despacho: ' + delivery.label,
   finalTotal === null
@@ -2566,7 +2555,13 @@ async function loadShop() {
   decorate(store);
   fillCategories();
   renderHome();
-  renderProducts();
+  const route = decodeURIComponent(location.hash.slice(1));
+  history.replaceState({brusaamRoute:route||'home'},'',location.href);
+  if (route.startsWith('category:')) {
+   const [category,sub=''] = route.slice(9).split('|');
+   openCategory(category,sub,false);
+  } else if (route.startsWith('section:')) openSection(route.slice(8),false);
+  else home(false);
   renderCart();
  } catch (error) {
   $('products').textContent =
@@ -2715,20 +2710,12 @@ const ADMIN = String.raw`
      Los más destacados
     </label>
 
-    <label class="checkLabel">
-     <input id="pSavings" type="checkbox">
-     Pack Ahorro
-    </label>
 
     <label class="checkLabel">
      <input id="pOffers" type="checkbox">
      Ofertas
     </label>
 
-    <label class="checkLabel">
-     <input id="pPyme" type="checkbox">
-     Box Pyme
-    </label>
 
     <label class="checkLabel">
      <input id="pNew" type="checkbox">
@@ -2763,13 +2750,15 @@ const ADMIN = String.raw`
 
  <div id="tab-sections" class="hidden">
   <section class="panel">
-   <h3>Fotografías de secciones</h3>
+   <h3>Carruseles automáticos de secciones</h3>
+   <p class="notice">Las fotografías de portada ya no son necesarias: cada tarjeta muestra las fotos de sus productos. Los más destacados, Ofertas y Nuevos ingresos se asignan desde Productos; Pack Ahorro y Box Pyme se crean de manera independiente aquí.</p>
    <div id="sectionList"></div>
   </section>
   <section class="panel">
    <h3>Agregar producto independiente a una sección especial</h3>
-   <p class="notice">Estos productos tienen precio único, fotografía y descripción propios. Se pueden comprar desde el carrito. Las opciones anteriores para vincular productos normales a secciones siguen disponibles.</p>
+   <p class="notice">Crea productos independientes exclusivamente para Pack Ahorro y Box Pyme. No se vinculan mediante casillas en el catálogo normal.</p>
    <form id="specialForm">
+    <input type="hidden" id="specialId">
     <label>Sección especial <select id="specialSection" required></select></label>
     <label>Nombre del producto <input id="specialName" maxlength="160" required></label>
     <label>Descripción <textarea id="specialDescription" maxlength="1000"></textarea></label>
@@ -2778,8 +2767,11 @@ const ADMIN = String.raw`
     <label>Fotografía <input id="specialFile" type="file" accept="image/png,image/jpeg,image/webp"></label>
     <button type="button" id="uploadSpecial">Subir fotografía</button>
     <label>URL de fotografía <input id="specialImage" type="url"></label>
-    <button type="submit">Guardar y publicar producto</button>
+    <button type="submit">Guardar producto independiente</button>
+    <button type="button" class="secondary" id="clearSpecial">Nuevo producto</button>
    </form>
+   <h3>Productos independientes registrados</h3>
+   <div id="specialProducts"></div>
    <p id="specialMessage"></p>
   </section>
  </div>
@@ -3206,7 +3198,8 @@ function renderProducts() {
  const root = $('productList');
  root.replaceChildren();
 
- for (const product of data.products) {
+ for (const product of data.products.filter(p=>Number(p.special_only)!==1 ||
+  (Number(p.pack_ahorro)!==1 && Number(p.box_pyme)!==1))) {
   const edit = () => {
    $('pId').value = product.id;
    $('pName').value = product.name || '';
@@ -3248,14 +3241,10 @@ function renderProducts() {
    $('pFeatured').checked =
     !!product.destacados;
 
-   $('pSavings').checked =
-    !!product.pack_ahorro;
 
    $('pOffers').checked =
     !!product.ofertas;
 
-   $('pPyme').checked =
-    !!product.box_pyme;
    $('pNew').checked = !!product.nuevos_ingresos;
 
    $('pActive').checked =
@@ -3345,9 +3334,9 @@ $('productForm').onsubmit = async event => {
    : 0,
 
   destacados: $('pFeatured').checked,
-  pack_ahorro: $('pSavings').checked,
+  pack_ahorro: Boolean(data.products.find(x=>String(x.id)===$('pId').value)?.pack_ahorro),
   ofertas: $('pOffers').checked,
-  box_pyme: $('pPyme').checked,
+  box_pyme: Boolean(data.products.find(x=>String(x.id)===$('pId').value)?.box_pyme),
   nuevos_ingresos: $('pNew').checked,
   active: $('pActive').checked
  };
@@ -3384,9 +3373,15 @@ $('uploadSpecial').onclick = async () => {
   message('specialMessage', 'Fotografía subida correctamente. Guarda el producto.');
  } catch(error) { message('specialMessage', error.message); }
 };
+$('clearSpecial').onclick = () => {
+ $('specialForm').reset();
+ $('specialId').value = '';
+ $('specialImage').value = '';
+};
 $('specialForm').onsubmit = async event => {
  event.preventDefault();
  const slug = $('specialSection').value;
+ if (!['pack_ahorro','box_pyme'].includes(slug)) {message('specialMessage','Selecciona Pack Ahorro o Box Pyme.');return;}
  const flags = {destacados:false,pack_ahorro:false,ofertas:false,box_pyme:false,nuevos_ingresos:false};
  flags[slug] = true;
  const price = Number($('specialPrice').value);
@@ -3398,9 +3393,10 @@ $('specialForm').onsubmit = async event => {
   active:true, special_only:1, ...flags
  };
  try {
-  await api('/api/admin/products','POST',product);
-  $('specialForm').reset();
-  message('specialMessage','Producto publicado. Puedes editarlo desde Productos registrados.');
+  const id = $('specialId').value;
+  await api('/api/admin/products'+(id?'/'+id:''),id?'PUT':'POST',product);
+  $('clearSpecial').click();
+  message('specialMessage','Producto independiente guardado correctamente.');
   await refresh();
  } catch(error) { message('specialMessage',error.message); }
 };
@@ -3408,113 +3404,39 @@ $('specialForm').onsubmit = async event => {
 function renderSections() {
  const sectionSelect = $('specialSection');
  sectionSelect.replaceChildren();
- for (const section of data.sections) sectionSelect.add(new Option(section.title,section.slug));
+ for (const section of data.sections.filter(x=>['pack_ahorro','box_pyme'].includes(x.slug)))
+  sectionSelect.add(new Option(section.title,section.slug));
  const root = $('sectionList');
  root.replaceChildren();
-
  for (const section of data.sections) {
-  const box = document.createElement('div');
-  box.className = 'adminRow';
-
-  const title = document.createElement('h3');
-  title.textContent = section.title;
-  box.append(title);
-
-  if (section.image) {
-   const image = document.createElement('img');
-   image.src = section.image;
-   image.alt = '';
-   box.append(image);
-  }
-
-  const file = document.createElement('input');
-  file.type = 'file';
-  file.accept =
-   'image/jpeg,image/png,image/webp';
-
-  const url = document.createElement('input');
-  url.type = 'url';
-  url.value = section.image || '';
-  url.placeholder = 'URL de fotografía';
-
-  const uploadButton =
-   document.createElement('button');
-
-  uploadButton.textContent = 'Subir fotografía';
-
-  uploadButton.onclick = async () => {
-   try {
-    if (!file.files[0]) {
-     throw Error('Selecciona una fotografía.');
-    }
-
-    const form = new FormData();
-    form.append('file', file.files[0]);
-
-    const response = await fetch(
-     '/api/admin/upload',
-     {
-      method: 'POST',
-      credentials: 'same-origin',
-      body: form
-     }
-    );
-
-    const result = await response.json();
-
-    if (!response.ok) {
-     throw Error(result.error);
-    }
-
-    url.value = result.url;
-
-    alert(
-     'Fotografía subida. Presiona Guardar sección.'
-    );
-   } catch (error) {
-    alert(error.message);
-   }
+  const count = data.products.filter(product=>Number(product[section.slug])===1 && Number(product.active)!==0).length;
+  const row = document.createElement('p');
+  row.textContent = section.title+': '+count+' producto(s) en su carrusel automático.';
+  root.append(row);
+ }
+ const specialRoot = $('specialProducts');
+ specialRoot.replaceChildren();
+ for (const product of data.products.filter(p =>
+  Number(p.special_only) === 1 && (Number(p.pack_ahorro)===1 || Number(p.box_pyme)===1))) {
+  const edit = () => {
+   $('specialId').value = product.id;
+   $('specialSection').value = Number(product.pack_ahorro)===1 ? 'pack_ahorro':'box_pyme';
+   $('specialName').value = product.name || '';
+   $('specialDescription').value = product.description || '';
+   $('specialPrice').value = product.retail;
+   $('specialStock').value = product.stock;
+   $('specialImage').value = product.image || '';
+   $('specialForm').scrollIntoView({behavior:'smooth'});
   };
-
-  const save = document.createElement('button');
-  save.textContent = 'Guardar sección';
-
-  save.onclick = async () => {
-   try {
-
-    await api(
-     '/api/admin/sections/' + section.slug,
-     'PUT',
-     { image: url.value.trim() }
-    );
-
-    await refresh();
-    alert('Sección actualizada.');
-   } catch (error) {
-    alert(error.message);
-   }
+  const remove = async () => {
+   if (!confirm('¿Eliminar '+product.name+'?')) return;
+   try {await api('/api/admin/products/'+product.id,'DELETE',{});await refresh();}
+   catch(error){alert(error.message)}
   };
-
-  box.append(
-   file,
-   uploadButton,
-   url,
-   save
-  );
-
-  root.append(box);
+  specialRoot.append(adminRow(product.name+' | $'+product.retail+' | Stock: '+product.stock,
+   product.image,edit,remove));
  }
 }
-
-function clearCategory() {
- $('categoryForm').reset();
-
- $('cId').value = '';
- $('cImage').value = '';
- $('cPosition').value = '0';
-}
-
-$('clearCategory').onclick = clearCategory;
 
 function renderCategories() {
  const root = $('categoryList');
