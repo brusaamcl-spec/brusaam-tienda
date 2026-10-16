@@ -1,3 +1,4 @@
+
 /*
  BRUSAAM - TIENDA ONLINE
  Versión completa con diseño floral aprobado.
@@ -31,7 +32,8 @@ const GROUPS = [
   ["destacados", "LOS MAS DESTACADOS", "⭐"],
   ["pack_ahorro", "PACK AHORRO", "📦"],
   ["ofertas", "OFERTAS", "🏷️"],
-  ["box_pyme", "BOX PYME", "🏪"]
+  ["box_pyme", "BOX PYME", "🏪"],
+  ["nuevos_ingresos", "NUEVOS INGRESOS", "✨"]
 ];
 
 const DEFAULT_CATEGORIES = {
@@ -210,6 +212,9 @@ async function initialize(env) {
     ["pack_ahorro", "INTEGER NOT NULL DEFAULT 0"],
     ["ofertas", "INTEGER NOT NULL DEFAULT 0"],
     ["offer_price", "INTEGER NOT NULL DEFAULT 0"],
+    ["offer_manga_price", "INTEGER NOT NULL DEFAULT 0"],
+    ["nuevos_ingresos", "INTEGER NOT NULL DEFAULT 0"],
+    ["special_only", "INTEGER NOT NULL DEFAULT 0"],
     ["box_pyme", "INTEGER NOT NULL DEFAULT 0"],
     ["manga_price", "INTEGER NOT NULL DEFAULT 0"],
     ["packs_per_manga", "INTEGER NOT NULL DEFAULT 0"]
@@ -1120,6 +1125,24 @@ footer .contactInfo {
     font-size: 14px !important;
   }
 }
+
+.sectionHeading{font-size:20px!important;letter-spacing:1.3px;text-transform:uppercase;color:#284878;background:linear-gradient(100deg,#edf9fb,#f3f0fc);border-left:4px solid #73b6d2;border-radius:10px;padding:13px 16px;margin:19px 0 14px!important}
+.elegantCatalog{font-family:Georgia,"Times New Roman",serif!important;font-style:italic;font-weight:600!important;letter-spacing:.5px;text-transform:none!important}
+.product .specialDescription{font-size:13px;line-height:1.5;color:#53617c;white-space:pre-wrap}
+
+
+/* Carruseles de fotografías para secciones especiales */
+.brusaamCarousel{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;
+ scroll-behavior:smooth;padding:5px 3px 12px;scrollbar-width:thin;}
+.brusaamSlide{flex:0 0 clamp(160px,32%,250px);scroll-snap-align:start;
+ border:1px solid #e6e7f2;border-radius:14px;background:#fff;padding:12px;
+ display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;
+ color:#293348;text-align:center;min-width:0;}
+.brusaamSlide img{display:block;width:100%;height:175px;object-fit:contain;}
+.brusaamSlide strong{font-size:14px;line-height:1.35;}
+.brusaamSlide:hover{border-color:#8ccdd7;box-shadow:0 3px 12px #00000012;}
+@media(max-width:600px){.brusaamSlide{flex-basis:65%;}.brusaamSlide img{height:160px;}}
+@media(prefers-reduced-motion:reduce){.brusaamCarousel{scroll-behavior:auto;}}
 </style>
 </head>
 <body>
@@ -1200,7 +1223,7 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome">CATÁLOGO DIGITAL BRUSAAM</h1>
+<h1 class="welcome elegantCatalog">Catálogo Brusaam</h1>
 
 <div class="search">
  <span>⌕</span>
@@ -1212,10 +1235,10 @@ const SHOP = String.raw`
  <div class="shopLeft">
 
   <div id="home">
-   <h2>Nuestras categorías</h2>
+   <h2 class="sectionHeading">NUESTRAS CATEGORÍAS</h2>
    <div id="categoryTiles" class="tiles"></div>
 
-   <h2>Secciones especiales</h2>
+   <h2 class="sectionHeading">SECCIONES ESPECIALES</h2>
    <div id="sectionTiles" class="tiles"></div>
 
    <div id="featuredAreas"></div>
@@ -1291,7 +1314,7 @@ const SHOP = String.raw`
  </aside>
 
  <section class="panel">
-  <h3>🚚 Condiciones y tarifas de despacho</h3>
+  <h3>🚚 CONDICIONES Y TARIFAS DE DESPACHO</h3>
 
   <div class="scroll">
    <table>
@@ -1490,8 +1513,7 @@ function makeTile(title, image, icon, action) {
 }
 
 function paperProduct(product) {
- return normalized(product.category) === 'papeleria' &&
-  normalized(product.subcategory) === 'papel higienico';
+ return normalized(product.category) === 'papeleria';
 }
 
 function mangaAvailable(product) {
@@ -1502,7 +1524,8 @@ function mangaAvailable(product) {
 
 function priceFor(product, kind, quantity) {
  if (kind === 'manga') {
-  return Number(product.manga_price);
+  return Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0
+   ? Number(product.offer_manga_price) : Number(product.manga_price);
  }
  if (Number(product.ofertas) === 1 && Number(product.offer_price) > 0) {
   return Number(product.offer_price);
@@ -1592,6 +1615,11 @@ function productCard(product) {
  }
 
  card.append(node('h3', product.name));
+ if (Number(product.special_only) === 1 && product.description) {
+  const desc = node('p', product.description);
+  desc.className = 'specialDescription';
+  card.append(desc);
+ }
 
  if (product.subcategory) {
   const subtitle = node(
@@ -1636,11 +1664,10 @@ function productCard(product) {
     details.textContent = 'Antes: ' + money(product.retail) + ' por paquete';
    } else if (presentation.value === 'manga') {
     amount.textContent =
-     money(product.manga_price) + ' por manga';
+     money(priceFor(product, 'manga', 1)) + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · OFERTA por manga' : ' por manga');
 
     details.textContent =
-     product.packs_per_manga +
-     ' paquetes por manga';
+     product.packs_per_manga + ' paquetes por manga' + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · Antes: ' + money(product.manga_price) : '');
    } else {
     amount.textContent =
      money(product.retail) + ' por paquete';
@@ -1694,13 +1721,13 @@ function productCard(product) {
   );
 
   wholesale.className = 'wholesalePrice';
-  if (!isOffer) card.append(wholesale);
+  if (!isOffer && Number(product.special_only) !== 1) card.append(wholesale);
  }
 
  const stock = node(
   'div',
   'Stock: ' + product.stock +
-  (paperProduct(product)
+  (Number(product.special_only) === 1 ? ' unidades' : paperProduct(product)
    ? ' paquetes'
    : ' unidades')
  );
@@ -1750,7 +1777,8 @@ function renderHome() {
   destacados: '⭐',
   pack_ahorro: '📦',
   ofertas: '🏷️',
-  box_pyme: '🏪'
+  box_pyme: '🏪',
+  nuevos_ingresos: '✨'
  };
 
  for (const section of store.sections) {
@@ -1763,42 +1791,63 @@ function renderHome() {
  }
 
  const featuredRoot = $('featuredAreas');
+ for (const oldPanel of featuredRoot.children) {
+  if (oldPanel._brusaamTimer) clearInterval(oldPanel._brusaamTimer);
+ }
  featuredRoot.replaceChildren();
 
  for (const section of store.sections) {
-  const products = store.products
-   .filter(product =>
-    Number(product[section.slug]) === 1
-   )
-   .slice(0, 4);
+  const products = store.products.filter(product =>
+   Number(product[section.slug]) === 1 &&
+   Number(product.active) !== 0
+  );
 
   if (!products.length) continue;
 
   const panel = node('section');
   panel.className = 'panel featuredPanel';
-
   const heading = node('div');
   heading.className = 'flex';
-
   const title = node('h2', section.title);
   title.className = 'grow';
-
   const more = node('button', 'Ver todos →');
   more.className = 'secondary';
   more.onclick = () => openSection(section.slug);
-
   heading.append(title, more);
   panel.append(heading);
 
-  const grid = node('div');
-  grid.className = 'grid';
+  const carousel = node('div');
+  carousel.className = 'brusaamCarousel';
+  carousel.setAttribute('aria-label', 'Productos de ' + section.title);
 
   for (const product of products) {
-   grid.append(productCard(product));
+   const slide = node('button');
+   slide.type = 'button';
+   slide.className = 'brusaamSlide';
+   slide.setAttribute('aria-label', 'Ver ' + product.name + ' en ' + section.title);
+   if (product.image) slide.append(photo(product.image, product.name));
+   else slide.append(node('div', '📦'));
+   slide.append(node('strong', product.name));
+   slide.onclick = () => openSection(section.slug);
+   carousel.append(slide);
   }
 
-  panel.append(grid);
+  panel.append(carousel);
   featuredRoot.append(panel);
+  if (products.length > 1) {
+   let index = 0;
+   const advance = () => {
+    if (!panel.isConnected || $('home').classList.contains('hidden')) return;
+    index = (index + 1) % products.length;
+    carousel.children[index].scrollIntoView({
+     behavior: 'smooth', block: 'nearest', inline: 'start'
+    });
+   };
+   // Un temporizador por carrusel, sin duplicarlo al recargar el catálogo.
+   const timer = setInterval(advance, 4000);
+   panel._brusaamTimer = timer;
+  }
+
  }
 }
 
@@ -1951,6 +2000,7 @@ function renderProducts() {
  const sub = $('filterSub').value;
 
  const products = store.products.filter(product => {
+  if (!currentSection && Number(product.special_only) === 1) return false;
   if (
    currentSection &&
    Number(product[currentSection]) !== 1
@@ -1988,12 +2038,15 @@ function renderProducts() {
  const root = $('products');
  root.replaceChildren();
  let shown = 0;
- const more = node('button', 'Ver más productos');
+ const more = node('button', 'Ver más');
  more.type = 'button';
  more.style.margin = '20px auto';
  more.style.display = 'block';
+ const homePreview = !$('home').classList.contains('hidden') &&
+  !query && !category && !sub && !currentSection;
  const addPage = () => {
-  const next = products.slice(shown, shown + 24);
+  const size = homePreview && shown === 0 ? 3 : 24;
+  const next = products.slice(shown, shown + size);
   for (const product of next) root.append(productCard(product));
   shown += next.length;
   if (shown < products.length) root.append(more);
@@ -2164,13 +2217,13 @@ function renderCart() {
   );
 
   const isWholesale =
-   !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) &&
+   Number(product.special_only) !== 1 && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) &&
    kind !== 'manga' &&
    quantity >= (Number(product.min_qty) || 2);
 
   const priceType = node(
    'div',
-   Number(product.ofertas) === 1 && Number(product.offer_price) > 0
+   Number(product.ofertas) === 1 && (kind === 'manga' ? Number(product.offer_manga_price) > 0 : Number(product.offer_price) > 0)
     ? 'Precio de oferta aplicado'
     : kind === 'manga'
     ? 'Precio por manga aplicado'
@@ -2266,7 +2319,7 @@ function renderCart() {
 
   const minimum = Number(product.min_qty) || 2;
 
-  if (quantity >= minimum && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0)) {
+  if (Number(product.special_only) !== 1 && quantity >= minimum && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0)) {
    const retailPrice = Number(product.retail);
    const wholesalePrice = priceFor(
     product, kind, quantity
@@ -2430,7 +2483,7 @@ $('checkout').onclick = () => {
 
   const unitPrice = priceFor(product, kind, quantity);
   const lineTotal = unitPrice * quantity;
-  const wholesale = !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) && kind !== 'manga' &&
+  const wholesale = Number(product.special_only) !== 1 && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) && kind !== 'manga' &&
    quantity >= (Number(product.min_qty) || 2);
 
   if (wholesale) {
@@ -2615,7 +2668,7 @@ const ADMIN = String.raw`
     </label>
 
     <div id="paperFields" class="hidden">
-     <h3>Papel higiénico: paquete y manga</h3>
+     <h3>Papelería: paquete y manga</h3>
 
      <p class="notice">
       Registra el stock en paquetes individuales.
@@ -2650,7 +2703,10 @@ const ADMIN = String.raw`
     <label>Precio de oferta (CLP)
      <input id="pOfferPrice" type="number" min="0" value="0">
     </label>
-    <p class="notice">Activa Ofertas para aplicar este precio único, sin descuentos mayoristas adicionales. Para papel higiénico, la oferta se aplica al paquete; la manga conserva su precio propio.</p>
+    <label>Precio de oferta por manga (solo papelería, CLP)
+     <input id="pOfferMangaPrice" type="number" min="0" value="0">
+    </label>
+    <p class="notice">Al activar Ofertas, el paquete y la manga pueden tener precios rebajados independientes. No se aplica un descuento mayorista adicional a la presentación rebajada.</p>
 
     <h3>Secciones especiales</h3>
 
@@ -2674,6 +2730,12 @@ const ADMIN = String.raw`
      Box Pyme
     </label>
 
+    <label class="checkLabel">
+     <input id="pNew" type="checkbox">
+     Nuevos Ingresos
+    </label>
+
+    <input id="pSpecialOnly" type="hidden" value="0">
     <label class="checkLabel">
      <input id="pActive"
       type="checkbox" checked>
@@ -2703,6 +2765,22 @@ const ADMIN = String.raw`
   <section class="panel">
    <h3>Fotografías de secciones</h3>
    <div id="sectionList"></div>
+  </section>
+  <section class="panel">
+   <h3>Agregar producto independiente a una sección especial</h3>
+   <p class="notice">Estos productos tienen precio único, fotografía y descripción propios. Se pueden comprar desde el carrito. Las opciones anteriores para vincular productos normales a secciones siguen disponibles.</p>
+   <form id="specialForm">
+    <label>Sección especial <select id="specialSection" required></select></label>
+    <label>Nombre del producto <input id="specialName" maxlength="160" required></label>
+    <label>Descripción <textarea id="specialDescription" maxlength="1000"></textarea></label>
+    <label>Precio único (CLP) <input id="specialPrice" type="number" min="0" required></label>
+    <label>Stock disponible <input id="specialStock" type="number" min="0" required></label>
+    <label>Fotografía <input id="specialFile" type="file" accept="image/png,image/jpeg,image/webp"></label>
+    <button type="button" id="uploadSpecial">Subir fotografía</button>
+    <label>URL de fotografía <input id="specialImage" type="url"></label>
+    <button type="submit">Guardar y publicar producto</button>
+   </form>
+   <p id="specialMessage"></p>
   </section>
  </div>
 
@@ -3059,8 +3137,7 @@ function fillProductSubs(selected = '') {
 
 function updatePaperFields() {
  const paper =
-  $('pCategory').value === 'Papelería' &&
-  $('pSub').value === 'Papel higiénico';
+  $('pCategory').value === 'Papelería';
 
  $('paperFields').classList.toggle(
   'hidden',
@@ -3115,6 +3192,8 @@ function clearProduct() {
  $('pMin').value = '2';
  $('pMangaPrice').value = '0';
  $('pOfferPrice').value = '0';
+ $('pOfferMangaPrice').value = '0';
+ $('pSpecialOnly').value = '0';
  $('pPacksPerManga').value = '0';
  $('pActive').checked = true;
 
@@ -3137,6 +3216,8 @@ function renderProducts() {
    $('pRetail').value = product.retail;
    $('pWholesale').value = product.wholesale;
    $('pOfferPrice').value = product.offer_price || 0;
+   $('pOfferMangaPrice').value = product.offer_manga_price || 0;
+   $('pSpecialOnly').value = product.special_only || 0;
    $('pMin').value = product.min_qty || 2;
    $('pStock').value = product.stock;
    $('pImage').value = product.image || '';
@@ -3175,6 +3256,7 @@ function renderProducts() {
 
    $('pPyme').checked =
     !!product.box_pyme;
+   $('pNew').checked = !!product.nuevos_ingresos;
 
    $('pActive').checked =
     !!product.active;
@@ -3238,8 +3320,7 @@ $('productForm').onsubmit = async event => {
  const id = $('pId').value;
 
  const paper =
-  $('pCategory').value === 'Papelería' &&
-  $('pSub').value === 'Papel higiénico';
+  $('pCategory').value === 'Papelería';
 
  const product = {
   name: $('pName').value.trim(),
@@ -3249,6 +3330,8 @@ $('productForm').onsubmit = async event => {
   retail: Number($('pRetail').value),
   wholesale: Number($('pWholesale').value),
   offer_price: Number($('pOfferPrice').value),
+  offer_manga_price: paper ? Number($('pOfferMangaPrice').value) : 0,
+  special_only: Number($('pSpecialOnly').value),
   min_qty: Number($('pMin').value),
   stock: Number($('pStock').value),
   image: $('pImage').value.trim(),
@@ -3265,6 +3348,7 @@ $('productForm').onsubmit = async event => {
   pack_ahorro: $('pSavings').checked,
   ofertas: $('pOffers').checked,
   box_pyme: $('pPyme').checked,
+  nuevos_ingresos: $('pNew').checked,
   active: $('pActive').checked
  };
 
@@ -3288,7 +3372,43 @@ $('productForm').onsubmit = async event => {
  }
 };
 
+$('uploadSpecial').onclick = async () => {
+ try {
+  const file = $('specialFile').files[0];
+  if (!file) throw Error('Selecciona una fotografía.');
+  const form = new FormData(); form.append('file', file);
+  const response = await fetch('/api/admin/upload', {method:'POST', credentials:'same-origin', body:form});
+  const result = await response.json();
+  if (!response.ok) throw Error(result.error || 'No se pudo subir la fotografía');
+  $('specialImage').value = result.url;
+  message('specialMessage', 'Fotografía subida correctamente. Guarda el producto.');
+ } catch(error) { message('specialMessage', error.message); }
+};
+$('specialForm').onsubmit = async event => {
+ event.preventDefault();
+ const slug = $('specialSection').value;
+ const flags = {destacados:false,pack_ahorro:false,ofertas:false,box_pyme:false,nuevos_ingresos:false};
+ flags[slug] = true;
+ const price = Number($('specialPrice').value);
+ const product = {
+  name:$('specialName').value.trim(), category:'Secciones especiales', subcategory:'',
+  description:$('specialDescription').value.trim(), retail:price, wholesale:price,
+  offer_price:0, offer_manga_price:0, min_qty:999999, stock:Number($('specialStock').value),
+  image:$('specialImage').value.trim(), manga_price:0, packs_per_manga:0,
+  active:true, special_only:1, ...flags
+ };
+ try {
+  await api('/api/admin/products','POST',product);
+  $('specialForm').reset();
+  message('specialMessage','Producto publicado. Puedes editarlo desde Productos registrados.');
+  await refresh();
+ } catch(error) { message('specialMessage',error.message); }
+};
+
 function renderSections() {
+ const sectionSelect = $('specialSection');
+ sectionSelect.replaceChildren();
+ for (const section of data.sections) sectionSelect.add(new Option(section.title,section.slug));
  const root = $('sectionList');
  root.replaceChildren();
 
@@ -3787,7 +3907,10 @@ function validProduct(product) {
     !validInteger(product.retail) ||
     !validInteger(product.wholesale) ||
     !validInteger(product.offer_price) ||
-    (product.ofertas && (product.offer_price <= 0 || product.offer_price >= product.retail)) ||
+    !validInteger(product.offer_manga_price || 0) ||
+    !validInteger(product.special_only || 0) ||
+    (product.ofertas && !product.special_only && product.offer_price > 0 && product.offer_price >= product.retail) ||
+    (product.ofertas && !product.special_only && product.offer_manga_price > 0 && product.offer_manga_price >= product.manga_price) ||
     !validInteger(product.min_qty, 1) ||
     !validInteger(product.stock) ||
     !validInteger(product.manga_price) ||
@@ -3798,8 +3921,7 @@ function validProduct(product) {
   }
 
   const paper =
-    product.category === "Papelería" &&
-    product.subcategory === "Papel higiénico";
+    product.category === "Papelería";
 
   if (
     !paper &&
@@ -4265,11 +4387,11 @@ export default {
            min_qty,stock,image,active,
            destacados,pack_ahorro,
            ofertas,box_pyme,
-           manga_price,packs_per_manga,offer_price
+           manga_price,packs_per_manga,offer_price,offer_manga_price,nuevos_ingresos,special_only
           )
           VALUES(
            ?,?,?,?,?,?,?,?,?,?,
-           ?,?,?,?,?,?,?
+           ?,?,?,?,?,?,?,?,?,?
           )
         `).bind(
           product.name.trim(),
@@ -4288,7 +4410,10 @@ export default {
           product.box_pyme ? 1 : 0,
           product.manga_price,
           product.packs_per_manga,
-          product.offer_price
+          product.offer_price,
+          product.offer_manga_price || 0,
+          product.nuevos_ingresos ? 1 : 0,
+          product.special_only ? 1 : 0
         ).run();
 
         return reply({
@@ -4328,7 +4453,10 @@ export default {
            box_pyme=?,
            manga_price=?,
            packs_per_manga=?,
-           offer_price=?
+           offer_price=?,
+           offer_manga_price=?,
+           nuevos_ingresos=?,
+           special_only=?
           WHERE id=?
         `).bind(
           product.name.trim(),
@@ -4348,6 +4476,9 @@ export default {
           product.manga_price,
           product.packs_per_manga,
           product.offer_price,
+          product.offer_manga_price || 0,
+          product.nuevos_ingresos ? 1 : 0,
+          product.special_only ? 1 : 0,
           Number(productId[1])
         ).run();
 
