@@ -384,7 +384,8 @@ async function getData(env, admin = false) {
     subcategories: subcategories.results || [],
     sections: sections.results || [],
     logo: preferences.logo || BR.logo,
-    design: preferences.design || ""
+    design: preferences.design || "",
+    promoGallery: (() => { try { const a=JSON.parse(preferences.promo_gallery || "[]"); return Array.isArray(a) ? a.filter(x=>typeof x==="string" && /^https:\/\//.test(x)).slice(0,20) : []; } catch {return [];} })()
   };
 }
 
@@ -1015,6 +1016,48 @@ footer{
 .brusaamSectionTile .brusaamSectionPhoto {transition:opacity .24s ease}
 .brusaamSectionTile .brusaamSectionPhoto.isChanging {opacity:.25}
 
+
+
+/* Galería publicitaria en el espacio vacío de Secciones Especiales */
+#sectionTiles {display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important}
+#sectionTiles .brusaamSectionTile {min-width:0}
+
+#sectionTiles .brusaamPromoGallery {
+ grid-column:2 / span 3;display:flex;align-items:center;justify-content:center;
+ min-width:0;overflow:hidden;border:1px solid #e7e5f0;border-radius:13px;
+ background:#fff;min-height:205px;align-self:stretch;
+}
+#sectionTiles .brusaamPromoPhoto {
+ width:100%;height:100%;max-height:260px;object-fit:contain!important;
+ object-position:center;background:#fff;display:block;
+}
+#sectionTiles .brusaamPromoPlaceholder {
+ border:1px dashed #d5cce4;color:#7c7195;text-align:center;
+ padding:18px;font-size:13px;
+}
+@media(max-width:650px) {
+ #sectionTiles {grid-template-columns:repeat(4,minmax(0,1fr))!important}
+ /* Quinta tarjeta en segunda fila, publicidad ocupando las tres columnas restantes. */
+ #sectionTiles .brusaamPromoGallery {grid-column:2 / span 3;min-height:180px}
+ #sectionTiles .brusaamPromoPhoto {max-height:240px}
+}
+
+/* Categorías: fotografía suave y botón visual sobre la misma imagen */
+#categoryTiles .brusaamCategoryTile {position:relative;cursor:pointer}
+#categoryTiles .brusaamCategoryTile img {opacity:.76;transition:opacity .2s ease;object-fit:contain!important}
+#categoryTiles .brusaamCategoryTile:hover img,
+#categoryTiles .brusaamCategoryTile:focus-visible img {opacity:.9}
+#categoryTiles .brusaamCategoryOverlay {
+ position:absolute;left:50%;top:62px;transform:translate(-50%,-50%);
+ padding:9px 16px;border-radius:24px;
+ background:rgba(255,255,255,.83);color:#142D65;
+ border:1px solid rgba(20,45,101,.17);
+ font-size:13px;font-weight:900;letter-spacing:.06em;
+ box-shadow:0 3px 12px rgba(20,45,101,.12);
+ pointer-events:none;white-space:nowrap;
+}
+@media(max-width:600px){#categoryTiles .brusaamCategoryOverlay{top:62px;padding:7px 8px;font-size:10px;letter-spacing:0}}
+
 /* PRECIO MAYORISTA EN FICHAS DE PRODUCTO */
 .wholesalePrice {
   display: inline-block;
@@ -1117,6 +1160,11 @@ footer .socialIntro {
   font-weight: 700 !important;
   color: #243B70;
 }
+.panAzucarChoice{margin:12px 0 16px;padding:13px 15px;border:1px solid #d9e8ed;border-radius:12px;background:#f5fbfc}
+.panAzucarCheck{display:flex!important;align-items:center;gap:10px;cursor:pointer;font-weight:600}
+.panAzucarCheck input{width:19px!important;height:19px!important;flex:0 0 19px;margin:0;accent-color:#238d9c}
+#panAzucarSectorWrap{margin-top:12px;display:block}
+#panAzucarSectorWrap.hidden,#regionWrap.hidden,#communeWrap.hidden{display:none!important}
 /* Contacto y dirección */
 footer .contactInfo {
   font-size: 15px !important;
@@ -1155,10 +1203,6 @@ footer .contactInfo {
  color:#293348;text-align:center;min-width:0;}
 .brusaamSlide img{display:block;width:100%;height:175px;object-fit:contain;}
 .brusaamSlide strong{font-size:14px;line-height:1.35;}
-.brusaamSectionTile{display:flex;flex-direction:column;align-items:center;gap:9px;padding:12px;min-height:0;}
-.brusaamSectionTile strong{order:0;font-size:14px;text-align:center;}
-.brusaamSectionPhoto{order:1;width:100%;height:150px;object-fit:contain;}
-.brusaamSectionTile span{order:2;font-size:12px;color:#287d95;font-weight:700;}
 .brusaamSlide:hover{border-color:#8ccdd7;box-shadow:0 3px 12px #00000012;}
 @media(max-width:600px){.brusaamSlide{flex-basis:65%;}.brusaamSlide img{height:160px;}}
 @media(prefers-reduced-motion:reduce){.brusaamCarousel{scroll-behavior:auto;}}
@@ -1258,7 +1302,7 @@ const SHOP = String.raw`
    <div id="categoryTiles" class="tiles"></div>
 
    <h2 class="sectionHeading">SECCIONES ESPECIALES</h2>
-   <div id="sectionTiles" class="tiles"></div>
+   <div id="sectionTiles" class="tiles"><div id="promoGallerySlot" class="brusaamPromoGallery brusaamPromoPlaceholder" aria-label="Espacio publicitario">📷 Espacio publicitario Brusaam</div></div>
 
    <div id="featuredAreas"></div>
   </div>
@@ -1400,7 +1444,17 @@ const SHOP = String.raw`
      placeholder="Calle, número y referencia">
    </label>
 
-   <label>Región *
+   <div class="panAzucarChoice">
+    <label class="panAzucarCheck" for="panAzucarConfirm">
+     <input type="checkbox" id="panAzucarConfirm">
+     <span>Mi dirección corresponde a Pan de Azúcar</span>
+    </label>
+    <label id="panAzucarSectorWrap" class="hidden">Indica tu sector de Pan de Azúcar *
+     <input id="panAzucarSector" maxlength="120" placeholder="Nombre del sector o referencia">
+    </label>
+   </div>
+
+   <label id="regionWrap">Región *
     <select id="region">
      <option value="">Selecciona tu región</option>
      <option>Arica y Parinacota</option>
@@ -1422,7 +1476,7 @@ const SHOP = String.raw`
     </select>
    </label>
 
-   <label>Comuna *
+   <label id="communeWrap">Comuna *
     <input id="commune" maxlength="100">
    </label>
   </div>
@@ -1514,9 +1568,11 @@ function decorate(data) {
  }
 }
 
-function makeTile(title, image, icon, action) {
+function makeTile(title, image, icon, action, categoryOverlay = false) {
  const button = node('button');
- button.className = 'tile';
+ button.className = 'tile' + (categoryOverlay ? ' brusaamCategoryTile' : '');
+ button.type = 'button';
+ if (categoryOverlay) button.setAttribute('aria-label', 'Ver categoría ' + title);
 
  if (image) {
   button.append(photo(image, title));
@@ -1526,6 +1582,11 @@ function makeTile(title, image, icon, action) {
   button.append(placeholder);
  }
 
+ if (categoryOverlay) {
+  const overlay = node('span', 'VER AQUÍ');
+  overlay.className = 'brusaamCategoryOverlay';
+  button.append(overlay);
+ }
  button.append(node('strong', title));
  button.onclick = action;
 
@@ -1807,7 +1868,7 @@ function renderHome() {
  const icons = {'Limpieza del hogar':'🧴','Cuidado personal':'🧼','Papelería':'🧻','Otros productos':'📦'};
  for (const category of store.categories) {
   categoryRoot.append(makeTile(category.name,category.image,icons[category.name]||'📁',
-   () => openCategory(category.name)));
+   () => openCategory(category.name), true));
  }
  const root = $('sectionTiles');
  root.replaceChildren();
@@ -1830,7 +1891,7 @@ function renderHome() {
    img.removeAttribute('src');
    img.alt = 'Sin fotografía disponible';
   }
-  tile.append(node('strong',section.title),img,node('span','Ver todos →'));
+  tile.append(img,node('strong',section.title));
   root.append(tile);
   if (products.length > 1) {
    let index = 0;
@@ -1860,6 +1921,40 @@ function renderHome() {
    tile.onclick = () => {if (!tile.dataset.swiped) openSection(slug)};
   }
  }
+
+ // Espacio publicitario: ocupa los tres lugares libres junto a Box Pyme.
+ const gallery = Array.isArray(store.promoGallery) ? store.promoGallery : [];
+ if (gallery.length) {
+  const banner = node('div');
+  banner.className = 'brusaamPromoGallery';
+  banner.dataset.role = 'promo-carousel';
+  banner.setAttribute('aria-label','Publicidad Brusaam');
+  const pic = photo(gallery[0], 'Publicidad Brusaam');
+  pic.className = 'brusaamPromoPhoto';
+  pic.loading = 'lazy';
+  banner.append(pic);
+  root.append(banner);
+  if (gallery.length > 1) {
+   let pos=0;
+   sectionTimers.push(setInterval(()=>{
+    if (!banner.isConnected || document.hidden) return;
+    pos=(pos+1)%gallery.length;
+    pic.src=gallery[pos];
+   },4000));
+   let x=null;
+   banner.addEventListener('touchstart',e=>{x=e.touches[0]?.clientX ?? null},{passive:true});
+   banner.addEventListener('touchend',e=>{
+    if(x===null)return;
+    const dx=(e.changedTouches[0]?.clientX ?? x)-x;x=null;
+    if(Math.abs(dx)>35){pos=(pos+(dx<0?1:gallery.length-1))%gallery.length;pic.src=gallery[pos];}
+   },{passive:true});
+  }
+ } else {
+  const placeholder=node('div','📷 Espacio publicitario · Sube tus fotografías en Administración → Secciones');
+  placeholder.className='brusaamPromoGallery brusaamPromoPlaceholder';
+  root.append(placeholder);
+ }
+
 }
 
 function fillCategories() {
@@ -2036,13 +2131,13 @@ function renderProducts() {
   return searchable.includes(query);
  });
 
- $('count').textContent = folderOnly ? 'Selecciona una subcategoría para ver sus productos' :
+ $('count').textContent =
   products.length + ' producto(s) encontrado(s)';
 
  const root = $('products');
  root.replaceChildren();
  let shown = 0;
- const more = node('button', 'Ver más productos');
+ const more = node('button', 'Ver más');
  more.type = 'button';
  more.style.margin = '20px auto';
  more.style.display = 'block';
@@ -2091,6 +2186,14 @@ function isPanDeAzucarFree(address) {
  );
 }
 
+function confirmedPanDeAzucar() {
+ if (!$('panAzucarConfirm').checked) return false;
+ const sector = $('panAzucarSector').value.trim();
+ const address = $('address').value.trim();
+ return Boolean(sector) && isPanDeAzucarFree('Pan de Azúcar ' + sector) &&
+  !/\bcruz\s+de\s+cana\b/.test(normalized(address));
+}
+
 function shipping() {
  if ($('mode').value === 'pickup') {
   return {
@@ -2103,6 +2206,15 @@ function shipping() {
  const region = normalized($('region').value);
  const commune = normalized($('commune').value);
  const address = $('address').value;
+ const panSelected = $('panAzucarConfirm').checked;
+
+ if (panSelected && address.trim() && confirmedPanDeAzucar()) {
+  return {type:'pan_free', amount:0, label:'Gratis (Pan de Azúcar)'};
+ }
+
+ if (panSelected) {
+  return {type:'pending', amount:null, label:'Por calcular'};
+ }
 
  if (!region || !commune || !address.trim()) {
   return {
@@ -2112,7 +2224,7 @@ function shipping() {
   };
  }
 
- if (region === 'coquimbo' && commune === 'coquimbo' && isPanDeAzucarFree(address)) {
+ if (region === 'coquimbo' && commune === 'coquimbo' && (confirmedPanDeAzucar() || (! $('panAzucarConfirm').checked && isPanDeAzucarFree(address)))) {
   return {type:'pan_free', amount:0, label:'Gratis (Pan de Azúcar)'};
  }
 
@@ -2422,6 +2534,18 @@ $('mode').onchange = () => {
 $('region').onchange = renderCart;
 $('commune').oninput = renderCart;
 $('address').oninput = renderCart;
+$('panAzucarConfirm').onchange = () => {
+ const selected = $('panAzucarConfirm').checked;
+ $('panAzucarSectorWrap').classList.toggle('hidden', !selected);
+ $('regionWrap').classList.toggle('hidden', selected);
+ $('communeWrap').classList.toggle('hidden', selected);
+ $('panAzucarSector').required = selected;
+ $('region').required = !selected;
+ $('commune').required = !selected;
+ if (!selected) $('panAzucarSector').value = '';
+ renderCart();
+};
+$('panAzucarSector').oninput = renderCart;
 
 $('goCheckout').onclick = () => {
  if (!Object.keys(cart).length) {
@@ -2458,13 +2582,16 @@ $('checkout').onclick = () => {
  const region = $('region').value;
  const commune = $('commune').value.trim();
 
- if (
-  !pickup &&
-  (!address || !region || !commune)
- ) {
-  alert(
-   'Completa dirección, región y comuna.'
-  );
+ if (!pickup && (!address || (!$('panAzucarConfirm').checked && (!region || !commune)))) {
+  alert($('panAzucarConfirm').checked
+   ? 'Completa la dirección.'
+   : 'Completa dirección, región y comuna.');
+  return;
+ }
+
+ if (!pickup && $('panAzucarConfirm').checked && !$('panAzucarSector').value.trim()) {
+  alert('Indica el sector de Pan de Azúcar para confirmar tu dirección.');
+  $('panAzucarSector').focus();
   return;
  }
 
@@ -2528,8 +2655,8 @@ $('checkout').onclick = () => {
   ...(!pickup
    ? [
      'Dirección: ' + address,
-     'Comuna: ' + commune,
-     'Región: ' + region
+     ...($('panAzucarConfirm').checked ? ['Pan de Azúcar: Sí', 'Sector: ' + $('panAzucarSector').value.trim()] : []),
+     ...(!$('panAzucarConfirm').checked ? ['Comuna: ' + commune, 'Región: ' + region] : [])
     ]
    : []),
   '',
@@ -2773,6 +2900,17 @@ const ADMIN = String.raw`
    <h3>Productos independientes registrados</h3>
    <div id="specialProducts"></div>
    <p id="specialMessage"></p>
+  </section>
+
+  <section class="panel">
+   <h3>Fotografías publicitarias de la portada</h3>
+   <p class="notice">Las imágenes aparecerán en el espacio junto a Box Pyme, dentro de Secciones Especiales. Cambian automáticamente cada 4 segundos, sin precios ni enlaces de compra. Puedes agregar hasta 20 fotografías y quitarlas cuando quieras.</p>
+   <label>Seleccionar fotografía
+    <input type="file" id="promoFile" accept="image/jpeg,image/png,image/webp">
+   </label>
+   <button type="button" id="promoUpload">Subir fotografía publicitaria</button>
+   <div id="promoList"></div>
+   <p id="promoMessage"></p>
   </section>
  </div>
 
@@ -3438,6 +3576,35 @@ function renderSections() {
  }
 }
 
+
+async function savePromoGallery(items) {
+ await api('/api/admin/promo-gallery','PUT',{images:items});
+ await refresh();
+}
+function renderPromoGallery() {
+ const root=$('promoList');root.replaceChildren();
+ for (const [i,url] of (data.promoGallery||[]).entries()) {
+  const row=document.createElement('div');
+  row.className='adminRow';
+  const img=document.createElement('img');img.src=url;img.alt='Publicidad '+(i+1);
+  const remove=document.createElement('button');remove.type='button';remove.textContent='Eliminar';
+  remove.onclick=async()=>{if(!confirm('¿Eliminar esta fotografía publicitaria?'))return;
+   try {await savePromoGallery(data.promoGallery.filter((_,j)=>j!==i));message('promoMessage','Fotografía eliminada.');}
+   catch(e){message('promoMessage',e.message);}
+  };
+  row.append(img,remove);root.append(row);
+ }
+}
+$('promoUpload').onclick=async()=>{
+ try {
+  if((data.promoGallery||[]).length>=20)throw Error('Máximo 20 fotografías.');
+  const url=await uploadFile('promoFile');
+  await savePromoGallery([...(data.promoGallery||[]),url]);
+  $('promoFile').value='';
+  message('promoMessage','Fotografía publicada en el carrusel.');
+ } catch(e){message('promoMessage',e.message);}
+};
+
 function renderCategories() {
  const root = $('categoryList');
  root.replaceChildren();
@@ -3748,6 +3915,7 @@ async function refresh() {
 
  renderProducts();
  renderSections();
+ renderPromoGallery();
  renderCategories();
  renderSubs();
 }
@@ -4466,6 +4634,20 @@ export default {
         ).run();
 
         return reply({ ok: true });
+      }
+
+
+      if (path === '/api/admin/promo-gallery' && method === 'PUT') {
+        const body=await request.json().catch(()=>null);
+        if (!body || !Array.isArray(body.images) || body.images.length>20 ||
+            !body.images.every(url=>typeof url==='string' && /^https:\/\//.test(url) && validImage(url))) {
+          return reply({error:'Fotografías no válidas (máximo 20).'},400);
+        }
+        await env.DB.prepare(`
+          INSERT INTO shop_settings (key,value) VALUES ('promo_gallery',?)
+          ON CONFLICT(key) DO UPDATE SET value=excluded.value
+        `).bind(JSON.stringify(body.images)).run();
+        return reply({ok:true});
       }
 
       /* LOGO Y DISEÑO */
