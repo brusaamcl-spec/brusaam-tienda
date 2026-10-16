@@ -1428,6 +1428,13 @@ const SHOP = String.raw`
   <label>Nombre y Apellido *
    <input id="customer" maxlength="120">
   </label>
+  <label>Teléfono de contacto
+   <input id="customerPhone" type="tel" maxlength="30" placeholder="+56 9 1234 5678">
+  </label>
+  <label>Observaciones del pedido (opcional)
+   <textarea id="orderNotes" maxlength="450" rows="2" placeholder="Indicaciones para la entrega o comentarios"></textarea>
+  </label>
+
 
   <label>
    Modalidad (Retiro o Entrega a Domicilio) *
@@ -2600,68 +2607,76 @@ $('checkout').onclick = () => {
 
  for (const [key, quantity] of Object.entries(cart)) {
   const [id, kind] = key.split(':');
-  const product = store.products.find(
-   item => String(item.id) === id
-  );
+  const product = store.products.find(item => String(item.id) === id);
   if (!product) continue;
-
-  const unitPrice = priceFor(product, kind, quantity);
-  const lineTotal = unitPrice * quantity;
+  const lineTotal = priceFor(product, kind, quantity) * quantity;
   savings += discountFor(product, kind, quantity);
-
   const presentation = kind === 'manga'
    ? 'manga(s) (' + product.packs_per_manga + ' paquetes por manga)'
    : paperProduct(product) ? 'paquete(s)' : 'unidad(es)';
-
   lines.push(
-   '*' + product.name + '*',
+   '🧴 *' + product.name + '*',
    'Cantidad: ' + quantity + ' ' + presentation,
-   '*Total del producto: ' + money(lineTotal) + '*',
-   '------------------------------'
+   'Total: ' + money(lineTotal),
+   ''
   );
  }
 
  const delivery = shipping();
  const productsTotal = subtotal();
+ const originalSubtotal = productsTotal + savings;
  const finalTotal = delivery.amount === null
   ? null : productsTotal + delivery.amount;
+ const phone = $('customerPhone').value.trim();
+ const notes = $('orderNotes').value.trim();
+ const pan = $('panAzucarConfirm').checked && !pickup;
 
  const message = [
-  '*BRUSAAM | SOLICITUD DE PEDIDO*',
+  '🛍️ *BRUSAAM*',
+  '✨ La excelencia en tu hogar ✨',
   '',
-  '*PRODUCTOS SOLICITADOS*',
-  '------------------------------',
+  '━━━━━━━━━━━━━━',
+  '💜 *NUEVA SOLICITUD DE PEDIDO*',
+  '━━━━━━━━━━━━━━',
+  '',
+  '🛒 *RESUMEN DE COMPRA*',
+  '',
   ...lines,
+  '━━━━━━━━━━━━━━',
+  '💰 *RESUMEN DE PAGO*',
   '',
-  '*RESUMEN DE COMPRA*',
-  'Subtotal de productos: ' + money(productsTotal),
-  ...(savings > 0
-   ? ['Descuentos Aplicados: ' + money(savings) + ' (ya incluidos)']
-   : []),
-  'Despacho: ' + delivery.label,
+  'Subtotal: ' + money(originalSubtotal),
+  ...(savings > 0 ? ['💚 Descuentos aplicados: -' + money(savings)] : []),
+  '🚚 Despacho: ' + delivery.label,
+  '',
   finalTotal === null
-   ? '*TOTAL PRODUCTOS: ' + money(productsTotal) + '*'
-   : '*TOTAL A PAGAR: ' + money(finalTotal) + '*',
-  ...(finalTotal === null
-   ? ['El valor del despacho está pendiente de confirmación.',
-      'El total final se confirmará al coordinar el envío.']
-   : []),
+   ? '💜 *TOTAL PRODUCTOS: ' + money(productsTotal) + '*'
+   : '💜 *TOTAL A PAGAR: ' + money(finalTotal) + '*',
+  ...(finalTotal === null ? [
+   'El valor del despacho está pendiente de confirmación.',
+   'El total final se confirmará al coordinar el envío.'
+  ] : []),
+  '━━━━━━━━━━━━━━',
   '',
-  '------------------------------',
-  '*DATOS DEL SOLICITANTE*',
+  '👤 *DATOS DEL SOLICITANTE*',
+  '',
   'Nombre: ' + customer,
-  'Modalidad: ' +
-   (pickup ? 'Retiro en tienda' : 'Entrega a domicilio'),
-  ...(!pickup
-   ? [
-     'Dirección: ' + address,
-     ...($('panAzucarConfirm').checked ? ['Pan de Azúcar: Sí', 'Sector: ' + $('panAzucarSector').value.trim()] : []),
-     ...(!$('panAzucarConfirm').checked ? ['Comuna: ' + commune, 'Región: ' + region] : [])
-    ]
-   : []),
+  ...(phone ? ['Teléfono: ' + phone] : []),
   '',
-  '------------------------------',
-  'Brusaam confirmará disponibilidad, pago y coordinación del pedido.'
+  '📍 *DATOS DE ENTREGA*',
+  '',
+  'Modalidad: ' + (pickup ? 'Retiro en tienda' : 'Despacho a domicilio'),
+  ...(!pickup ? [
+   'Dirección: ' + address,
+   ...(pan ? ['Sector de Pan de Azúcar: ' + $('panAzucarSector').value.trim()]
+          : ['Comuna: ' + commune, 'Región: ' + region])
+  ] : []),
+  ...(notes ? ['', '📝 *OBSERVACIONES*', notes] : []),
+  '',
+  '━━━━━━━━━━━━━━',
+  '💜 *¡Gracias por preferir BRUSAAM!*',
+  '',
+  '📲 Brusaam confirmará disponibilidad, pago y coordinación del pedido.'
  ].join('\n');
 
  window.location.href =
