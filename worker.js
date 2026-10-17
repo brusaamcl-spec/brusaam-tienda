@@ -2037,13 +2037,10 @@ function productCard(product) {
   const promo = node('div');
   promo.className = 'brusaamPackPromo';
   const heading = node('strong', '💜 ARMA TU PACK');
-  const info = node('div', 'Combina este ' +
-   (pack.type === 'shampoo' ? 'shampoo con cualquier acondicionador ' : 'acondicionador con cualquier shampoo ') +
-   'de la misma marca, sin importar aroma o variedad.');
   const packPrice = (store.packSettings && store.packSettings[pack.brand] && Number(store.packSettings[pack.brand].price)) || 4890;
-  const price = node('strong', '1 shampoo + 1 acondicionador: ' + money(packPrice) + (packPrice % 2 === 0 ? ' (' + money(packPrice/2) + ' c/u)' : ' por ambos'));
+  const price = node('strong', 'A elección 1 Shampoo + 1 Acondicionador misma marca: ' + money(packPrice) + (packPrice % 2 === 0 ? ' (' + money(packPrice/2) + ' c/u)' : ' por ambos'));
   const note = node('small', 'Promoción automática al completar la pareja en el carrito.');
-  promo.append(heading,info,price,note);
+  promo.append(heading,price,note);
   card.append(promo);
  }
 
