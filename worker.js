@@ -1740,17 +1740,25 @@ function packAllocation() {
  return assigned;
 }
 
-function packUnitPrice(brand) {
+function packUnitPrice(brand, type) {
  const settings = store.packSettings && store.packSettings[brand];
  const price = settings && Number(settings.price) > 0 ? Number(settings.price) : 4890;
- return price / 2;
+ // Si el precio del pack es impar, el peso restante se asigna al acondicionador.
+ // De esta forma ambas líneas siempre suman exactamente el precio del pack.
+ return type === 'acondicionador' ? Math.ceil(price / 2) : Math.floor(price / 2);
+}
+
+function packLineLabel(product, paired) {
+ const identity = packIdentity(product);
+ if (!identity || !paired) return '';
+ return '💜 Arma tu Pack: ' + paired + ' unidad(es) a ' + money(packUnitPrice(identity.brand, identity.type)) + ' c/u';
 }
 
 function cartLinePrice(product, kind, quantity, key, allocation) {
  const paired = allocation[key] || 0;
  const remaining = quantity - paired;
  const identity = packIdentity(product);
- return paired * packUnitPrice(identity && identity.brand) + remaining * priceFor(product,kind,remaining);
+ return paired * packUnitPrice(identity && identity.brand, identity && identity.type) + remaining * priceFor(product,kind,remaining);
 }
 
 function cartLineDiscount(product, kind, quantity, key, allocation) {
@@ -2577,7 +2585,7 @@ function renderCart() {
   const priceType = node(
    'div',
    paired > 0
-    ? '💜 Arma tu Pack: ' + paired + ' unidad(es) a $2.445 c/u'
+    ? packLineLabel(product, paired)
     : Number(product.ofertas) === 1 && (kind === 'manga' ? Number(product.offer_manga_price) > 0 : Number(product.offer_price) > 0)
     ? 'Precio de oferta aplicado'
     : kind === 'manga'
@@ -2835,9 +2843,9 @@ $('checkout').onclick = () => {
    ? 'manga(s) (' + product.packs_per_manga + ' paquetes por manga)'
    : paperProduct(product) ? 'paquete(s)' : 'unidad(es)';
   lines.push(
-   '🧴 *' + product.name + '*',
+   '📝 *' + product.name + '*',
    'Cantidad: ' + quantity + ' ' + presentation,
-   ...(allocation[key] ? ['💜 Arma tu Pack: ' + allocation[key] + ' unidad(es) a $2.445'] : []),
+   ...(allocation[key] ? [packLineLabel(product, allocation[key])] : []),
    'Total: ' + money(lineTotal),
    ''
   );
@@ -2863,15 +2871,15 @@ $('checkout').onclick = () => {
   '',
   ...lines,
   '━━━━━━━━━━━━━━',
-  '💰 *RESUMEN DE PAGO*',
+  '🧾 *RESUMEN DE PAGO*',
   '',
   'Subtotal: ' + money(originalSubtotal),
   ...(savings > 0 ? ['💚 Descuentos aplicados: -' + money(savings)] : []),
   '🚚 Despacho: ' + delivery.label,
   '',
   finalTotal === null
-   ? '💜 *TOTAL PRODUCTOS: ' + money(productsTotal) + '*'
-   : '💜 *TOTAL A PAGAR: ' + money(finalTotal) + '*',
+   ? '💰 *TOTAL PRODUCTOS: ' + money(productsTotal) + '*'
+   : '💰 *TOTAL A PAGAR: ' + money(finalTotal) + '*',
   ...(finalTotal === null ? [
    'El valor del despacho está pendiente de confirmación.',
    'El total final se confirmará al coordinar el envío.'
