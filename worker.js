@@ -1059,6 +1059,13 @@ footer{
 @media(max-width:600px){#categoryTiles .brusaamCategoryOverlay{top:62px;padding:7px 8px;font-size:10px;letter-spacing:0}}
 
 
+
+.presentationText{display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.3}
+.presentationPrice{font-size:14px;font-weight:800;color:#17366b}
+.presentationOffer{display:inline-block;background:#fff0eb;color:#ad271a;border:1px solid #ffc4b9;
+ padding:3px 8px;border-radius:999px;font-size:11px;font-weight:900}
+.presentationBefore{font-size:11px;text-decoration:line-through;color:#797a89}
+
 /* Presentaciones de papelería: opciones visibles y táctiles */
 .presentationChoices{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px}
 .presentationOption{flex:1 1 110px;display:flex!important;align-items:center;justify-content:center;gap:7px;
@@ -1296,7 +1303,7 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM - TIENDA ONLINE</h1>
+<h1 class="welcome elegantCatalog">Catálogo Brusaam</h1>
 
 <div class="search">
  <span>⌕</span>
@@ -1782,7 +1789,18 @@ function productCard(product) {
    );
   }
 
-  // Mostrar ambas alternativas directamente, sin abrir un desplegable.
+  // Las ofertas de paquete y manga se indican siempre en ambas opciones,
+  // sin que el cliente tenga que cambiar de presentación para descubrirlas.
+  const packOffer = Number(product.ofertas) === 1 &&
+   Number(product.offer_price) > 0 &&
+   Number(product.offer_price) < Number(product.retail);
+  const mangaOffer = mangaAvailable(product) &&
+   Number(product.ofertas) === 1 &&
+   Number(product.offer_manga_price) > 0 &&
+   Number(product.offer_manga_price) < Number(product.manga_price);
+  const defaultKind = packOffer ? 'pack' : mangaOffer ? 'manga' : 'pack';
+  presentation.value = defaultKind;
+
   const presentationChoices = node('div');
   presentationChoices.className = 'presentationChoices';
   const radioName = 'presentation-' + product.id + '-' + Math.random().toString(36).slice(2);
@@ -1794,9 +1812,27 @@ function productCard(product) {
    radio.type = 'radio';
    radio.name = radioName;
    radio.value = value;
-   radio.checked = value === 'pack';
-   const labelText = node('span', label);
-   option.append(radio, labelText);
+   radio.checked = value === defaultKind;
+   const content = node('span');
+   content.className = 'presentationText';
+   content.append(node('strong', label));
+   const isOffer = value === 'pack' ? packOffer : mangaOffer;
+   const current = value === 'pack'
+    ? (packOffer ? Number(product.offer_price) : Number(product.retail))
+    : (mangaOffer ? Number(product.offer_manga_price) : Number(product.manga_price));
+   const price = node('span', money(current));
+   price.className = 'presentationPrice';
+   content.append(price);
+   if (isOffer) {
+    const badge = node('span', '🏷️ OFERTA');
+    badge.className = 'presentationOffer';
+    content.append(badge);
+    const original = value === 'pack' ? Number(product.retail) : Number(product.manga_price);
+    const previous = node('span', 'Antes ' + money(original));
+    previous.className = 'presentationBefore';
+    content.append(previous);
+   }
+   option.append(radio, content);
    radio.onchange = () => {
     if (!radio.checked) return;
     presentation.value = value;
@@ -1814,15 +1850,15 @@ function productCard(product) {
   details.className = 'muted';
 
   const update = () => {
-   if (presentation.value !== 'manga' && Number(product.ofertas) === 1 && Number(product.offer_price) > 0) {
+   if (presentation.value !== 'manga' && packOffer) {
     amount.textContent = money(product.offer_price) + ' · OFERTA';
     details.textContent = 'Antes: ' + money(product.retail) + ' por paquete';
    } else if (presentation.value === 'manga') {
     amount.textContent =
-     money(priceFor(product, 'manga', 1)) + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · OFERTA por manga' : ' por manga');
+     money(priceFor(product, 'manga', 1)) + (mangaOffer ? ' · OFERTA por manga' : ' por manga');
 
     details.textContent =
-     product.packs_per_manga + ' paquetes por manga' + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · Antes: ' + money(product.manga_price) : '');
+     product.packs_per_manga + ' paquetes por manga' + (mangaOffer ? ' · Antes: ' + money(product.manga_price) : '');
    } else {
     amount.textContent =
      money(product.retail) + ' por paquete';
