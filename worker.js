@@ -1075,6 +1075,11 @@ footer{
 .presentationShownPrice{font-size:14px;color:#153b83;font-weight:900}
 .presentationOnSale .presentationShownPrice{color:#bc1755}
 
+
+.presentationWholesaleInfo{display:block;font-size:11px;font-weight:700;color:#583198;
+ background:#f2eafb;padding:5px 6px;border-radius:7px;line-height:1.35;max-width:100%;
+ white-space:normal;overflow-wrap:anywhere}
+
 /* PRECIO MAYORISTA EN FICHAS DE PRODUCTO */
 .wholesalePrice {
   display: inline-block;
@@ -1832,6 +1837,15 @@ function productCard(product) {
    const price = node('span', money(finalPrice));
    price.className = 'presentationShownPrice';
    content.append(price);
+   // Mostrar el precio por mayor directamente dentro de la opción paquete.
+   // Las ofertas no acumulan descuentos mayoristas.
+   if (value === 'pack' && !packOffer && Number(product.special_only) !== 1 &&
+       Number(product.wholesale) > 0 && Number(product.wholesale) < Number(product.retail)) {
+    const wholesaleInfo = node('span',
+     'Mayor: ' + money(product.wholesale) + ' c/u desde ' + (product.min_qty || 2) + ' un.');
+    wholesaleInfo.className = 'presentationWholesaleInfo';
+    content.append(wholesaleInfo);
+   }
    option.append(radio, content);
    radio.onchange = () => {
     if (!radio.checked) return;
