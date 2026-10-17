@@ -1042,6 +1042,13 @@ footer{
  #sectionTiles .brusaamPromoPhoto {max-height:240px}
 }
 
+/* Promoción automática de shampoo + acondicionador */
+.brusaamPackPromo {display:flex;flex-direction:column;gap:5px;margin:10px 0;
+ padding:11px;border:1px solid #dfc9f4;border-radius:12px;background:#f8f2fd;
+ color:#49315e;font-size:12px;line-height:1.45}
+.brusaamPackPromo strong:first-child {font-size:13px;color:#683c91}
+.brusaamPackPromo small {color:#715e80}
+
 /* Categorías: fotografía suave y botón visual sobre la misma imagen */
 #categoryTiles .brusaamCategoryTile {position:relative;cursor:pointer}
 #categoryTiles .brusaamCategoryTile img {opacity:.76;transition:opacity .2s ease;object-fit:contain!important}
@@ -1315,7 +1322,7 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM - TIENDA ONLINE</h1>
+<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM</h1>
 
 <div class="search">
  <span>⌕</span>
@@ -1664,6 +1671,63 @@ function priceFor(product, kind, quantity) {
   : Number(product.retail);
 }
 
+// Pack automático: un shampoo y un acondicionador de la misma marca.
+// Ballerina participa únicamente en formato bolsa Doypack.
+function packIdentity(product) {
+ if (!product || Number(product.special_only) === 1 || paperProduct(product)) return null;
+ const name = normalized(product.name);
+ const brand = ['sedal','pantene','suavelina','familand','ballerina']
+  .find(item => new RegExp('(^|[^a-z])' + item + '([^a-z]|$)').test(name));
+ if (!brand) return null;
+ if (brand === 'ballerina' && !/doy\s*pack|doypack|bolsa/.test(name)) return null;
+ const isConditioner = /acondicionador|conditioner|balsamo/.test(name);
+ const isShampoo = /shampoo|shampu|champu/.test(name);
+ if (isConditioner === isShampoo) return null;
+ return {brand, type:isShampoo ? 'shampoo' : 'acondicionador'};
+}
+
+// Distribuir parejas por marca entre líneas del carrito, sin mezclar marcas.
+// Las unidades restantes conservan sus precios normales o mayoristas.
+function packAllocation() {
+ const groups = {};
+ const assigned = {};
+ for (const [key, qty] of Object.entries(cart)) {
+  const [id, kind] = key.split(':');
+  if (kind !== 'pack') continue;
+  const product = store.products.find(p => String(p.id) === id);
+  const identity = packIdentity(product);
+  if (!identity || qty <= 0) continue;
+  if (!groups[identity.brand]) groups[identity.brand] = {shampoo:[], acondicionador:[]};
+  groups[identity.brand][identity.type].push({key, qty:Number(qty)});
+ }
+ for (const group of Object.values(groups)) {
+  const shampooCount = group.shampoo.reduce((sum,item)=>sum+item.qty,0);
+  const conditionerCount = group.acondicionador.reduce((sum,item)=>sum+item.qty,0);
+  let pairs = Math.min(shampooCount,conditionerCount);
+  for (const type of ['shampoo','acondicionador']) {
+   let remaining = pairs;
+   for (const item of group[type]) {
+    const applied = Math.min(item.qty,remaining);
+    assigned[item.key] = applied;
+    remaining -= applied;
+   }
+  }
+ }
+ return assigned;
+}
+
+function cartLinePrice(product, kind, quantity, key, allocation) {
+ const paired = allocation[key] || 0;
+ const remaining = quantity - paired;
+ return paired * 2445 + remaining * priceFor(product,kind,remaining);
+}
+
+function cartLineDiscount(product, kind, quantity, key, allocation) {
+ const paid = cartLinePrice(product,kind,quantity,key,allocation);
+ const base = kind === 'manga' ? Number(product.manga_price) : Number(product.retail);
+ return Math.max(0,base * quantity - paid);
+}
+
 function stockUsed(id) {
  let used = 0;
 
@@ -1935,6 +1999,20 @@ function productCard(product) {
 
   wholesale.className = 'wholesalePrice';
   if (!isOffer && Number(product.special_only) !== 1) card.append(wholesale);
+ }
+
+ const pack = packIdentity(product);
+ if (pack) {
+  const promo = node('div');
+  promo.className = 'brusaamPackPromo';
+  const heading = node('strong', '💜 ARMA TU PACK');
+  const info = node('div', 'Combina este ' +
+   (pack.type === 'shampoo' ? 'shampoo con cualquier acondicionador ' : 'acondicionador con cualquier shampoo ') +
+   'de la misma marca, sin importar aroma o variedad.');
+  const price = node('strong', '1 shampoo + 1 acondicionador: $4.890 ($2.445 c/u)');
+  const note = node('small', 'Promoción automática al completar la pareja en el carrito.');
+  promo.append(heading,info,price,note);
+  card.append(promo);
  }
 
  const stock = node(
@@ -2276,6 +2354,7 @@ function renderProducts() {
 }
 
 function subtotal() {
+ const allocation = packAllocation();
  let result = 0;
 
  for (const [key, quantity] of Object.entries(cart)) {
@@ -2286,11 +2365,7 @@ function subtotal() {
   );
 
   if (product) {
-   result += priceFor(
-    product,
-    kind,
-    quantity
-   ) * quantity;
+   result += cartLinePrice(product,kind,quantity,key,allocation);
   }
  }
 
@@ -2409,6 +2484,7 @@ function discountFor(product, kind, quantity) {
 function renderCart() {
  const root = $('cartItems');
  root.replaceChildren();
+ const allocation = packAllocation();
 
  if (!Object.keys(cart).length) {
   const empty = node(
@@ -2461,18 +2537,19 @@ function renderCart() {
   information.append(description);
 
   
-  const unitPrice = priceFor(
-   product, kind, quantity
-  );
+  const paired = allocation[key] || 0;
+  const linePrice = cartLinePrice(product,kind,quantity,key,allocation);
 
   const isWholesale =
    Number(product.special_only) !== 1 && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) &&
    kind !== 'manga' &&
-   quantity >= (Number(product.min_qty) || 2);
+   quantity - paired >= (Number(product.min_qty) || 2);
 
   const priceType = node(
    'div',
-   Number(product.ofertas) === 1 && (kind === 'manga' ? Number(product.offer_manga_price) > 0 : Number(product.offer_price) > 0)
+   paired > 0
+    ? '💜 Arma tu Pack: ' + paired + ' unidad(es) a $2.445 c/u'
+    : Number(product.ofertas) === 1 && (kind === 'manga' ? Number(product.offer_manga_price) > 0 : Number(product.offer_price) > 0)
     ? 'Precio de oferta aplicado'
     : kind === 'manga'
     ? 'Precio por manga aplicado'
@@ -2489,7 +2566,7 @@ function renderCart() {
 
   const total = node(
    'div',
-   'Total: ' + money(unitPrice * quantity)
+   'Total: ' + money(linePrice)
   );
 
   total.className = 'price';
@@ -2557,7 +2634,7 @@ function renderCart() {
  for (const [key, quantity] of Object.entries(cart)) {
   const [id, kind] = key.split(':');
   const product = store.products.find(item => String(item.id) === id);
-  if (product) totalSavings += discountFor(product, kind, quantity);
+  if (product) totalSavings += cartLineDiscount(product,kind,quantity,key,allocation);
  }
 
  $('savingsTotal').textContent =
@@ -2717,19 +2794,21 @@ $('checkout').onclick = () => {
 
  const lines = [];
  let savings = 0;
+ const allocation = packAllocation();
 
  for (const [key, quantity] of Object.entries(cart)) {
   const [id, kind] = key.split(':');
   const product = store.products.find(item => String(item.id) === id);
   if (!product) continue;
-  const lineTotal = priceFor(product, kind, quantity) * quantity;
-  savings += discountFor(product, kind, quantity);
+  const lineTotal = cartLinePrice(product,kind,quantity,key,allocation);
+  savings += cartLineDiscount(product,kind,quantity,key,allocation);
   const presentation = kind === 'manga'
    ? 'manga(s) (' + product.packs_per_manga + ' paquetes por manga)'
    : paperProduct(product) ? 'paquete(s)' : 'unidad(es)';
   lines.push(
    '🧴 *' + product.name + '*',
    'Cantidad: ' + quantity + ' ' + presentation,
+   ...(allocation[key] ? ['💜 Arma tu Pack: ' + allocation[key] + ' unidad(es) a $2.445'] : []),
    'Total: ' + money(lineTotal),
    ''
   );
