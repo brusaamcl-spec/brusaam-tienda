@@ -1303,7 +1303,7 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome elegantCatalog">Catálogo Brusaam</h1>
+<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM - TIENDA ONLINE</h1>
 
 <div class="search">
  <span>⌕</span>
