@@ -1080,6 +1080,12 @@ footer{
  background:#f2eafb;padding:5px 6px;border-radius:7px;line-height:1.35;max-width:100%;
  white-space:normal;overflow-wrap:anywhere}
 
+/* Estado agotado visible en fichas sin existencias */
+.productSoldOut > button:last-child:disabled {
+ background:#e7e9ee!important;color:#646b78!important;
+ border-color:#d2d6de!important;opacity:1!important;cursor:not-allowed;
+ font-weight:800;letter-spacing:.04em;
+}
 /* PRECIO MAYORISTA EN FICHAS DE PRODUCTO */
 .wholesalePrice {
   display: inline-block;
@@ -1774,6 +1780,7 @@ function productCard(product) {
   quantity.value = String(max ? Math.min(max, Math.max(1, Math.trunc(Number(value) || 1))) : 0);
   qtyMinus.disabled = Number(quantity.value) <= 1;
   qtyPlus.disabled = Number(quantity.value) >= max;
+  if (typeof updateAvailability === 'function') updateAvailability();
  };
  qtyMinus.onclick = () => clampQty(Number(quantity.value) - 1);
  qtyPlus.onclick = () => clampQty(Number(quantity.value) + 1);
@@ -1941,7 +1948,16 @@ function productCard(product) {
  stock.className = 'muted';
 
  const add = node('button', '🛒 Agregar');
- add.disabled = Number(product.stock) < 1;
+ const updateAvailability = () => {
+  const available = maxQty();
+  add.disabled = available < 1;
+  add.textContent = available < 1 ? 'AGOTADO' : '🛒 Agregar';
+  qtyMinus.disabled = available < 1 || Number(quantity.value) <= 1;
+  qtyPlus.disabled = available < 1 || Number(quantity.value) >= available;
+  quantity.disabled = available < 1;
+  card.classList.toggle('productSoldOut', available < 1);
+ };
+
 
  add.onclick = () => {
   clampQty(quantity.value);
@@ -1955,6 +1971,7 @@ function productCard(product) {
 
  card.append(stock, qtyControls, add);
  clampQty(1);
+ updateAvailability();
 
  return card;
 }
