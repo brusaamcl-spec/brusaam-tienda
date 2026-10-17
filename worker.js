@@ -2041,7 +2041,7 @@ function productCard(product) {
    (pack.type === 'shampoo' ? 'shampoo con cualquier acondicionador ' : 'acondicionador con cualquier shampoo ') +
    'de la misma marca, sin importar aroma o variedad.');
   const packPrice = (store.packSettings && store.packSettings[pack.brand] && Number(store.packSettings[pack.brand].price)) || 4890;
-  const price = node('strong', '1 shampoo + 1 acondicionador: ' + money(packPrice) + ' (' + money(packPrice/2) + ' c/u)');
+  const price = node('strong', '1 shampoo + 1 acondicionador: ' + money(packPrice) + (packPrice % 2 === 0 ? ' (' + money(packPrice/2) + ' c/u)' : ' por ambos'));
   const note = node('small', 'Promoción automática al completar la pareja en el carrito.');
   promo.append(heading,info,price,note);
   card.append(promo);
@@ -4763,9 +4763,9 @@ export default {
             !PACK_BRANDS.every(brand => {
               const item = settings[brand];
               return item && typeof item.enabled === 'boolean' &&
-                Number.isSafeInteger(item.price) && item.price > 0 && item.price <= 1000000 && item.price % 2 === 0;
+                Number.isSafeInteger(item.price) && item.price > 0 && item.price <= 1000000;
             })) {
-          return reply({error:'Revisa los precios (deben ser montos pares) y estados de las siete opciones.'},400);
+          return reply({error:'Revisa los precios (montos enteros mayores que cero) y los estados de las siete opciones.'},400);
         }
         await env.DB.prepare(`
           INSERT INTO shop_settings (key,value) VALUES ('pack_settings',?)
