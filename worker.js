@@ -1058,6 +1058,15 @@ footer{
 }
 @media(max-width:600px){#categoryTiles .brusaamCategoryOverlay{top:62px;padding:7px 8px;font-size:10px;letter-spacing:0}}
 
+
+/* Presentaciones de papelería: opciones visibles y táctiles */
+.presentationChoices{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px}
+.presentationOption{flex:1 1 110px;display:flex!important;align-items:center;justify-content:center;gap:7px;
+ padding:10px 8px!important;border:1.5px solid #d8c8eb;border-radius:12px;
+ background:#fff;color:#283b67;font-size:13px;font-weight:700;cursor:pointer;margin:0!important}
+.presentationOption:has(input:checked){background:#f0e6fc;border-color:#7332ca;color:#52228e}
+.presentationOption input{width:16px!important;height:16px!important;accent-color:#7130c7;margin:0!important}
+
 /* PRECIO MAYORISTA EN FICHAS DE PRODUCTO */
 .wholesalePrice {
   display: inline-block;
@@ -1286,7 +1295,7 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome elegantCatalog">Catálogo Brusaam</h1>
+<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM - TIENDA ONLINE</h1>
 
 <div class="search">
  <span>⌕</span>
@@ -1428,14 +1437,6 @@ const SHOP = String.raw`
   <label>Nombre y Apellido *
    <input id="customer" maxlength="120">
   </label>
-  <label>Teléfono de contacto
-   <input id="customerPhone" type="tel" maxlength="30" placeholder="+56 9 1234 5678">
-  </label>
-  <label>Observaciones del pedido (opcional)
-   <textarea id="orderNotes" maxlength="450" rows="2" placeholder="Indicaciones para la entrega o comentarios"></textarea>
-  </label>
-
-
   <label>
    Modalidad (Retiro o Entrega a Domicilio) *
    <select id="mode">
@@ -1487,6 +1488,11 @@ const SHOP = String.raw`
     <input id="commune" maxlength="100">
    </label>
   </div>
+
+  <label>Observaciones del pedido (opcional)
+   <textarea id="orderNotes" maxlength="450" rows="2"
+    placeholder="Indicaciones para la entrega o comentarios"></textarea>
+  </label>
 
   <p class="notice" id="shippingNotice">
    Completa tus datos para calcular el despacho.
@@ -1763,6 +1769,31 @@ function productCard(product) {
    );
   }
 
+  // Mostrar ambas alternativas directamente, sin abrir un desplegable.
+  const presentationChoices = node('div');
+  presentationChoices.className = 'presentationChoices';
+  const radioName = 'presentation-' + product.id + '-' + Math.random().toString(36).slice(2);
+  for (const [value, label] of [['pack','Por paquete'],['manga','Por manga']]) {
+   if (value === 'manga' && !mangaAvailable(product)) continue;
+   const option = node('label');
+   option.className = 'presentationOption';
+   const radio = document.createElement('input');
+   radio.type = 'radio';
+   radio.name = radioName;
+   radio.value = value;
+   radio.checked = value === 'pack';
+   const labelText = node('span', label);
+   option.append(radio, labelText);
+   radio.onchange = () => {
+    if (!radio.checked) return;
+    presentation.value = value;
+    presentation.dispatchEvent(new Event('change'));
+   };
+   presentationChoices.append(option);
+  }
+  presentation.style.display = 'none';
+  presentation.setAttribute('aria-hidden', 'true');
+
   const amount = node('div');
   amount.className = 'price';
 
@@ -1804,7 +1835,7 @@ function productCard(product) {
      ? 'muted' : 'wholesalePrice';
    };
 
-  card.append(presentation, amount, details);
+  card.append(presentationChoices, presentation, amount, details);
   update();
  } else {
   const isOffer = Number(product.ofertas) === 1 && Number(product.offer_price) > 0;
@@ -2627,7 +2658,6 @@ $('checkout').onclick = () => {
  const originalSubtotal = productsTotal + savings;
  const finalTotal = delivery.amount === null
   ? null : productsTotal + delivery.amount;
- const phone = $('customerPhone').value.trim();
  const notes = $('orderNotes').value.trim();
  const pan = $('panAzucarConfirm').checked && !pickup;
 
@@ -2661,7 +2691,6 @@ $('checkout').onclick = () => {
   '👤 *DATOS DEL SOLICITANTE*',
   '',
   'Nombre: ' + customer,
-  ...(phone ? ['Teléfono: ' + phone] : []),
   '',
   '📍 *DATOS DE ENTREGA*',
   '',
