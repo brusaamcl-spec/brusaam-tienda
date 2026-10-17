@@ -1256,6 +1256,35 @@ footer .contactInfo {
 .brusaamSlide:hover{border-color:#8ccdd7;box-shadow:0 3px 12px #00000012;}
 @media(max-width:600px){.brusaamSlide{flex-basis:65%;}.brusaamSlide img{height:160px;}}
 @media(prefers-reduced-motion:reduce){.brusaamCarousel{scroll-behavior:auto;}}
+
+/* BRUSAAM: carrusel principal con dos promociones */
+.brusaamHero{position:relative;width:calc(100% - 32px);max-width:1280px;margin:20px auto 16px;overflow:hidden;border-radius:16px;background:#f3edff;min-height:158px}
+.flowerHeader .brusaamHeroSlide.banner{display:none!important;position:relative;width:100%!important;max-width:none!important;margin:0!important;min-height:158px;padding:22px 54px 42px!important;border-radius:16px;text-align:center;animation:brusaamFade .35s ease both}
+.flowerHeader .brusaamHeroSlide.banner.active{display:block!important}
+.brusaamHeroSlide p{margin:9px auto 0;max-width:850px;line-height:1.45}
+.brusaamHeroArrow{position:absolute;top:48%;transform:translateY(-50%);width:35px;height:43px;padding:0!important;border-radius:10px;background:#6a2bc6cc;color:white;font-size:30px;z-index:2}
+.brusaamHeroArrow.prev{left:8px}.brusaamHeroArrow.next{right:8px}
+.brusaamHeroDots{position:absolute;bottom:10px;left:0;right:0;display:flex;gap:9px;justify-content:center;z-index:2}
+.brusaamHeroDots button{width:10px;height:10px;min-width:10px;border-radius:50%;padding:0;background:#b5a4d0;border:0}
+.brusaamHeroDots button.active{background:#6725c7;width:25px;border-radius:8px}
+@keyframes brusaamFade{from{opacity:.35}to{opacity:1}}
+@media(max-width:600px){
+ .brusaamHero{width:calc(100% - 20px);margin:16px auto;min-height:170px}
+ .flowerHeader .brusaamHeroSlide.banner{min-height:170px;padding:16px 39px 36px!important;font-size:12px!important}
+ .flowerHeader .brusaamHeroSlide.banner strong{font-size:clamp(17px,5vw,23px)!important;line-height:1.2;overflow-wrap:anywhere}
+ .brusaamHeroSlide p{font-size:12px!important;line-height:1.4}
+ .brusaamHeroArrow{width:27px;height:35px;font-size:23px}
+ .sectionHeading{font-size:clamp(13px,4vw,17px)!important;letter-spacing:0!important;line-height:1.35!important;padding:11px 9px!important;white-space:normal!important;overflow-wrap:anywhere!important;max-width:100%;}
+ #sectionTiles .tile strong,#sectionTiles .brusaamSectionTile strong{font-size:clamp(9px,2.6vw,13px)!important;line-height:1.25!important;overflow-wrap:anywhere!important;word-break:normal!important;padding:8px 3px!important;min-width:0}
+ #sectionTiles .brusaamSectionTile{min-width:0;overflow:hidden}
+ #sectionTiles .brusaamSectionPhoto{height:105px!important}
+ #sectionTiles{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+ #sectionTiles .brusaamPromoGallery{grid-column:1 / -1!important}
+ #sectionTiles .tile strong,#sectionTiles .brusaamSectionTile strong{font-size:clamp(12px,3.5vw,15px)!important;min-height:52px;white-space:normal!important;overflow:visible!important}
+ #sectionTiles .brusaamSectionPhoto{height:125px!important}
+ .featuredPanel h2,.shopLeft h2{overflow-wrap:anywhere}
+}
+@media(prefers-reduced-motion:reduce){.flowerHeader .brusaamHeroSlide.banner{animation:none}}
 </style>
 </head>
 <body>
@@ -1709,18 +1738,24 @@ function priceFor(product, kind, quantity) {
   : Number(product.retail);
 }
 
-// Agrupar variantes de aroma con misma línea, formato y precio; no mezclar productos diferentes.
+// Agrupación conservadora por familia y formato; no mezclar categorías, tamaños ni precios.
 const brusaamAromas = new Set(['original','lavanda','menta','limon','vinagre','vainilla','berries','berry','bebe','floral','flores','jazmin','coco','manzana','primavera','fresco','fresca','tradicional','citrus','citrico','frutal','frutales','marina','marino','rosas','rosa','azul','verde','morado','lila','rosado','blanco','blanca','manzanilla','palta','almendra','aloe','durazno','tropical','naranja','frutilla']);
 function brusaamWholesaleKey(product){
  if(!product || Number(product.special_only)===1 || Number(product.ofertas)===1 || paperProduct(product))return '';
  if(!(Number(product.wholesale)>0) || !(Number(product.wholesale)<Number(product.retail)))return '';
- const name=normalized(product.name).replace(/(\d)\s+(ml|cc|lt|lts|l|kg|gr|g|un|und|unidades)\b/g,'$1$2');
- const tokens=name.replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/);
- const sizes=tokens.filter((t,i)=>/^[0-9]+(?:ml|cc|lt|lts|l|kg|gr|g|un|und|unidades)$/.test(t));
- if(!sizes.length)return ''; // Sin presentación verificable, no combinar automáticamente.
- const core=tokens.filter(t=>!brusaamAromas.has(t)).join(' ');
- if(!core || core===name)return ''; // No inventar equivalencias si no hay aromas reconocibles.
- return [normalized(product.category),normalized(product.subcategory),core,Number(product.retail),Number(product.wholesale),Number(product.min_qty)||2].join('|');
+ const name=normalized(product.name||'').replace(/(\d)\s+(ml|cc|lt|lts|l|kg|gr|g|un|und|unidades|rollos|mts|mt)\b/g,'$1$2');
+ const sizeMatch=name.match(/\b(\d+(?:[.,]\d+)?)(ml|cc|lt|lts|l|kg|gr|g|un|und|unidades|rollos|mts|mt)\b/);
+ if(!sizeMatch)return '';
+ let size=sizeMatch[1].replace(',','.')+sizeMatch[2];
+ const type=/\b(acond|acondicionador|balsamo)\b/.test(name)?'acondicionador':/\b(sh|shampoo|champu)\b/.test(name)?'shampoo':/\b(jabon|jabones)\b/.test(name)?'jabon':/\b(detergente)\b/.test(name)?'detergente':/\b(suavizante)\b/.test(name)?'suavizante':/\b(cloro\s*gel)\b/.test(name)?'cloro gel':/\b(lavaloza|lavalozas)\b/.test(name)?'lavalozas':/\b(limpiapiso|limpiapisos|limpia piso|limpia pisos)\b/.test(name)?'limpiapisos':/\b(desodorante|ambiental|aromatizante)\b/.test(name)?'ambiental':'otro';
+ const brands=['head & shoulders','head and shoulders','h&s','pantene','sedal','poett','ballerina','suavelina','familand','elvive','lux','le sancy','dove','nivea','igenix','ais matic','ais','ro','quix','fuzol','jj','teddy','de osol','deosol','etiquet','bio','confort','elite','swan','abolengo'];
+ const brand=brands.find(b=>(' '+name+' ').includes(' '+b+' '));
+ // Si no conocemos la marca, exigimos la misma denominación base para evitar descuentos incorrectos.
+ const tokens=name.replace(/[^a-z0-9&]+/g,' ').trim().split(/\s+/);
+ const core=tokens.filter(t=>!brusaamAromas.has(t) && !/^(\d+(?:[.,]\d+)?(?:ml|cc|lt|lts|l|kg|gr|g|un|und|unidades|rollos|mts|mt))$/.test(t)).join(' ');
+ const family=brand ? brand : core;
+ if(!family)return '';
+ return [normalized(product.category),type,family,size,Number(product.retail),Number(product.wholesale),Number(product.min_qty)||2].join('|');
 }
 function brusaamWholesaleCounts(allocation){
  const groups={};
@@ -2632,7 +2667,7 @@ function renderCart() {
   const isWholesale =
    Number(product.special_only) !== 1 && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) &&
    kind !== 'manga' &&
-   brusaamQualifies(product,kind,quantity-paired,allocation);
+   (quantity-paired)>0 && brusaamQualifies(product,kind,quantity-paired,allocation);
 
   const priceType = node(
    'div',
