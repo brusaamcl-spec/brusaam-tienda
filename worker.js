@@ -4179,7 +4179,7 @@ function renderPackSettings() {
   priceLabel.textContent = 'Precio total del pack (2 productos)';
   const price = document.createElement('input');
   price.type = 'number'; price.min = '1'; price.max = '1000000';
-  price.step = '2'; price.required = true;
+  price.step = '1'; price.required = true;
   price.value = String(setting.price || 4890);
   price.id = 'packPrice_' + brand;
   priceLabel.append(price);
