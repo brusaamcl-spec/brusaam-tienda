@@ -1059,13 +1059,6 @@ footer{
 @media(max-width:600px){#categoryTiles .brusaamCategoryOverlay{top:62px;padding:7px 8px;font-size:10px;letter-spacing:0}}
 
 
-
-.presentationText{display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.3}
-.presentationPrice{font-size:14px;font-weight:800;color:#17366b}
-.presentationOffer{display:inline-block;background:#fff0eb;color:#ad271a;border:1px solid #ffc4b9;
- padding:3px 8px;border-radius:999px;font-size:11px;font-weight:900}
-.presentationBefore{font-size:11px;text-decoration:line-through;color:#797a89}
-
 /* Presentaciones de papelería: opciones visibles y táctiles */
 .presentationChoices{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 8px}
 .presentationOption{flex:1 1 110px;display:flex!important;align-items:center;justify-content:center;gap:7px;
@@ -1073,6 +1066,14 @@ footer{
  background:#fff;color:#283b67;font-size:13px;font-weight:700;cursor:pointer;margin:0!important}
 .presentationOption:has(input:checked){background:#f0e6fc;border-color:#7332ca;color:#52228e}
 .presentationOption input{width:16px!important;height:16px!important;accent-color:#7130c7;margin:0!important}
+
+
+.presentationOptionContent{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0;text-align:center}
+.presentationOnSale{border-color:#d63a6b!important;background:#fff6fa!important}
+.presentationOfferBadge{font-size:11px;font-weight:900;color:#b51650;background:#ffe1ed;border-radius:15px;padding:3px 8px}
+.presentationOldPrice{font-size:11px;color:#8a8190;text-decoration:line-through}
+.presentationShownPrice{font-size:14px;color:#153b83;font-weight:900}
+.presentationOnSale .presentationShownPrice{color:#bc1755}
 
 /* PRECIO MAYORISTA EN FICHAS DE PRODUCTO */
 .wholesalePrice {
@@ -1789,8 +1790,9 @@ function productCard(product) {
    );
   }
 
-  // Las ofertas de paquete y manga se indican siempre en ambas opciones,
-  // sin que el cliente tenga que cambiar de presentación para descubrirlas.
+  // Mostrar ambas alternativas directamente, sin abrir un desplegable.
+  const presentationChoices = node('div');
+  presentationChoices.className = 'presentationChoices';
   const packOffer = Number(product.ofertas) === 1 &&
    Number(product.offer_price) > 0 &&
    Number(product.offer_price) < Number(product.retail);
@@ -1798,40 +1800,38 @@ function productCard(product) {
    Number(product.ofertas) === 1 &&
    Number(product.offer_manga_price) > 0 &&
    Number(product.offer_manga_price) < Number(product.manga_price);
-  const defaultKind = packOffer ? 'pack' : mangaOffer ? 'manga' : 'pack';
-  presentation.value = defaultKind;
-
-  const presentationChoices = node('div');
-  presentationChoices.className = 'presentationChoices';
+  // Cuando solo la manga está en oferta, mostrarla seleccionada desde el inicio.
+  const initialKind = mangaOffer && !packOffer ? 'manga' : 'pack';
+  presentation.value = initialKind;
   const radioName = 'presentation-' + product.id + '-' + Math.random().toString(36).slice(2);
   for (const [value, label] of [['pack','Por paquete'],['manga','Por manga']]) {
    if (value === 'manga' && !mangaAvailable(product)) continue;
+   const isOffer = value === 'manga' ? mangaOffer : packOffer;
+   const base = value === 'manga' ? Number(product.manga_price) : Number(product.retail);
+   const finalPrice = value === 'manga'
+    ? (mangaOffer ? Number(product.offer_manga_price) : base)
+    : (packOffer ? Number(product.offer_price) : base);
    const option = node('label');
-   option.className = 'presentationOption';
+   option.className = 'presentationOption' + (isOffer ? ' presentationOnSale' : '');
    const radio = document.createElement('input');
    radio.type = 'radio';
    radio.name = radioName;
    radio.value = value;
-   radio.checked = value === defaultKind;
+   radio.checked = value === initialKind;
    const content = node('span');
-   content.className = 'presentationText';
+   content.className = 'presentationOptionContent';
    content.append(node('strong', label));
-   const isOffer = value === 'pack' ? packOffer : mangaOffer;
-   const current = value === 'pack'
-    ? (packOffer ? Number(product.offer_price) : Number(product.retail))
-    : (mangaOffer ? Number(product.offer_manga_price) : Number(product.manga_price));
-   const price = node('span', money(current));
-   price.className = 'presentationPrice';
-   content.append(price);
    if (isOffer) {
     const badge = node('span', '🏷️ OFERTA');
-    badge.className = 'presentationOffer';
+    badge.className = 'presentationOfferBadge';
     content.append(badge);
-    const original = value === 'pack' ? Number(product.retail) : Number(product.manga_price);
-    const previous = node('span', 'Antes ' + money(original));
-    previous.className = 'presentationBefore';
-    content.append(previous);
+    const old = node('span', 'Antes: ' + money(base));
+    old.className = 'presentationOldPrice';
+    content.append(old);
    }
+   const price = node('span', money(finalPrice));
+   price.className = 'presentationShownPrice';
+   content.append(price);
    option.append(radio, content);
    radio.onchange = () => {
     if (!radio.checked) return;
@@ -1850,15 +1850,15 @@ function productCard(product) {
   details.className = 'muted';
 
   const update = () => {
-   if (presentation.value !== 'manga' && packOffer) {
+   if (presentation.value !== 'manga' && Number(product.ofertas) === 1 && Number(product.offer_price) > 0) {
     amount.textContent = money(product.offer_price) + ' · OFERTA';
     details.textContent = 'Antes: ' + money(product.retail) + ' por paquete';
    } else if (presentation.value === 'manga') {
     amount.textContent =
-     money(priceFor(product, 'manga', 1)) + (mangaOffer ? ' · OFERTA por manga' : ' por manga');
+     money(priceFor(product, 'manga', 1)) + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · OFERTA por manga' : ' por manga');
 
     details.textContent =
-     product.packs_per_manga + ' paquetes por manga' + (mangaOffer ? ' · Antes: ' + money(product.manga_price) : '');
+     product.packs_per_manga + ' paquetes por manga' + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · Antes: ' + money(product.manga_price) : '');
    } else {
     amount.textContent =
      money(product.retail) + ' por paquete';
@@ -1884,7 +1884,9 @@ function productCard(product) {
      ? 'muted' : 'wholesalePrice';
    };
 
-  card.append(presentationChoices, presentation, amount, details);
+  // Los precios y las etiquetas OFERTA ya aparecen dentro de cada opción.
+  // Evitar duplicarlos debajo en texto azul.
+  card.append(presentationChoices, presentation);
   update();
  } else {
   const isOffer = Number(product.ofertas) === 1 && Number(product.offer_price) > 0;
