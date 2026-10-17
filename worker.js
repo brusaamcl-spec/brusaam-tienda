@@ -28,6 +28,20 @@ const BR = {
   cookie: "brusaam_session"
 };
 
+const PACK_BRANDS = ['sedal','pantene','suavelina','familand','ballerina','ballerina_botella','elvive'];
+const DEFAULT_PACK_SETTINGS = Object.fromEntries(PACK_BRANDS.map(brand => [brand, {enabled:!['ballerina_botella','elvive'].includes(brand), price:4890}]));
+function safePackSettings(value) {
+  let parsed = {};
+  try { parsed = JSON.parse(value || '{}'); } catch {}
+  return Object.fromEntries(PACK_BRANDS.map(brand => {
+    const setting = parsed && typeof parsed === 'object' ? parsed[brand] : null;
+    return [brand, {
+      enabled: setting && typeof setting.enabled === 'boolean' ? setting.enabled : !['ballerina_botella','elvive'].includes(brand),
+      price: setting && Number.isSafeInteger(setting.price) && setting.price > 0 && setting.price <= 1000000 ? setting.price : 4890
+    }];
+  }));
+}
+
 const GROUPS = [
   ["destacados", "LOS MAS DESTACADOS", "⭐"],
   ["ofertas", "OFERTAS", "🏷️"],
@@ -385,6 +399,7 @@ async function getData(env, admin = false) {
     sections: sections.results || [],
     logo: preferences.logo || BR.logo,
     design: preferences.design || "",
+    packSettings: safePackSettings(preferences.pack_settings),
     promoGallery: (() => { try { const a=JSON.parse(preferences.promo_gallery || "[]"); return Array.isArray(a) ? a.filter(x=>typeof x==="string" && /^https:\/\//.test(x)).slice(0,20) : []; } catch {return [];} })()
   };
 }
@@ -1546,7 +1561,8 @@ let store = {
  products: [],
  categories: [],
  subcategories: [],
- sections: []
+ sections: [],
+ packSettings: {}
 };
 
 let cart = {};
@@ -1680,11 +1696,17 @@ function packIdentity(product) {
  const isShampoo = name === 'sh' || name.startsWith('sh ') || name.startsWith('sh.') || name.startsWith('sh-');
  const isConditioner = name === 'acond' || name.startsWith('acond ') || name.startsWith('acond.') || name.startsWith('acond-');
  if (isShampoo === isConditioner) return null;
- const brands = ['sedal','pantene','suavelina','familand','ballerina'];
- const brand = brands.find(item => (' ' + name + ' ').includes(' ' + item + ' '));
+ const brands = ['sedal','pantene','suavelina','familand','ballerina','elvive'];
+ let brand = brands.find(item => (' ' + name + ' ').includes(' ' + item + ' '));
  if (!brand) return null;
- // Para Ballerina, solo las fichas cuyo nombre indique Doypack.
- if (brand === 'ballerina' && !name.includes('doypack') && !name.includes('doy pack')) return null;
+ // Las dos presentaciones Ballerina tienen promociones independientes.
+ if (brand === 'ballerina') {
+  if (/\bdoy\s*pack\b/.test(name)) brand = 'ballerina';
+  else if (/\bbotella\b/.test(name)) brand = 'ballerina_botella';
+  else return null;
+ }
+ const setting = store.packSettings && store.packSettings[brand];
+ if (setting && setting.enabled === false) return null;
  return {brand, type:isShampoo ? 'shampoo' : 'acondicionador'};
 }
 
@@ -1718,10 +1740,17 @@ function packAllocation() {
  return assigned;
 }
 
+function packUnitPrice(brand) {
+ const settings = store.packSettings && store.packSettings[brand];
+ const price = settings && Number(settings.price) > 0 ? Number(settings.price) : 4890;
+ return price / 2;
+}
+
 function cartLinePrice(product, kind, quantity, key, allocation) {
  const paired = allocation[key] || 0;
  const remaining = quantity - paired;
- return paired * 2445 + remaining * priceFor(product,kind,remaining);
+ const identity = packIdentity(product);
+ return paired * packUnitPrice(identity && identity.brand) + remaining * priceFor(product,kind,remaining);
 }
 
 function cartLineDiscount(product, kind, quantity, key, allocation) {
@@ -2011,7 +2040,8 @@ function productCard(product) {
   const info = node('div', 'Combina este ' +
    (pack.type === 'shampoo' ? 'shampoo con cualquier acondicionador ' : 'acondicionador con cualquier shampoo ') +
    'de la misma marca, sin importar aroma o variedad.');
-  const price = node('strong', '1 shampoo + 1 acondicionador: $4.890 ($2.445 c/u)');
+  const packPrice = (store.packSettings && store.packSettings[pack.brand] && Number(store.packSettings[pack.brand].price)) || 4890;
+  const price = node('strong', '1 shampoo + 1 acondicionador: ' + money(packPrice) + ' (' + money(packPrice/2) + ' c/u)');
   const note = node('small', 'Promoción automática al completar la pareja en el carrito.');
   promo.append(heading,info,price,note);
   card.append(promo);
@@ -2937,6 +2967,9 @@ const ADMIN = String.raw`
   <button data-tab="products" class="active">
    Productos
   </button>
+  <button data-tab="packs">
+   Arma tu Pack
+  </button>
   <button data-tab="sections">
    Secciones
   </button>
@@ -2949,6 +2982,18 @@ const ADMIN = String.raw`
   <button data-tab="design">
    Diseño y logo
   </button>
+ </div>
+
+ <div id="tab-packs" class="hidden">
+  <section class="panel">
+   <h3>💜 Arma tu Pack — precios por marca</h3>
+   <p class="muted">Activa o desactiva cada marca y establece el precio total de 1 SH + 1 Acond. de la misma marca. Ballerina Doypack y Ballerina Botella se configuran por separado; Elvive también tiene su propia configuración. Ballerina Botella y Elvive comienzan deshabilitados. Los cambios se aplican al catálogo y al carrito.</p>
+   <form id="packSettingsForm">
+    <div id="packSettingsFields"></div>
+    <button type="submit">Guardar precios y disponibilidad</button>
+   </form>
+   <p id="packSettingsMessage"></p>
+  </section>
  </div>
 
  <div id="tab-products">
@@ -3339,6 +3384,7 @@ function openTab(name) {
 
  for (const tab of [
   'products',
+  'packs',
   'sections',
   'categories',
   'subs',
@@ -4110,6 +4156,55 @@ $('removeDesign').onclick = async () => {
  }
 };
 
+const packBrandLabels = {
+ sedal:'Sedal', pantene:'Pantene', suavelina:'Suavelina',
+ familand:'Familand', ballerina:'Ballerina Doypack',
+ ballerina_botella:'Ballerina Botella', elvive:'Elvive'
+};
+function renderPackSettings() {
+ const root = $('packSettingsFields');
+ root.replaceChildren();
+ for (const [brand,label] of Object.entries(packBrandLabels)) {
+  const setting = data.packSettings && data.packSettings[brand] || {enabled:!['ballerina_botella','elvive'].includes(brand),price:4890};
+  const row = document.createElement('div');
+  row.className = 'panel';
+  const heading = document.createElement('strong');
+  heading.textContent = label;
+  const toggleLabel = document.createElement('label');
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox'; toggle.checked = setting.enabled !== false;
+  toggle.id = 'packEnabled_' + brand;
+  toggleLabel.append(toggle, document.createTextNode(' Promoción habilitada'));
+  const priceLabel = document.createElement('label');
+  priceLabel.textContent = 'Precio total del pack (2 productos)';
+  const price = document.createElement('input');
+  price.type = 'number'; price.min = '1'; price.max = '1000000';
+  price.step = '2'; price.required = true;
+  price.value = String(setting.price || 4890);
+  price.id = 'packPrice_' + brand;
+  priceLabel.append(price);
+  row.append(heading,toggleLabel,priceLabel);
+  root.append(row);
+ }
+}
+$('packSettingsForm').onsubmit = async event => {
+ event.preventDefault();
+ const settings = {};
+ for (const brand of Object.keys(packBrandLabels)) {
+  settings[brand] = {
+   enabled: $('packEnabled_' + brand).checked,
+   price: Number($('packPrice_' + brand).value)
+  };
+ }
+ try {
+  await api('/api/admin/pack-settings','PUT',{settings});
+  await refresh();
+  message('packSettingsMessage','Precios y estados guardados correctamente.');
+ } catch (error) {
+  message('packSettingsMessage',error.message);
+ }
+};
+
 async function refresh() {
  data = await api('/api/admin/data');
 
@@ -4122,6 +4217,7 @@ async function refresh() {
  fillCategorySelects();
 
  renderProducts();
+ renderPackSettings();
  renderSections();
  renderPromoGallery();
  renderCategories();
@@ -4656,6 +4752,26 @@ export default {
         return reply(
           await getData(env, true)
         );
+      }
+
+      /* CONFIGURACIÓN DE ARMA TU PACK POR MARCA */
+      if (path === '/api/admin/pack-settings' && method === 'PUT') {
+        const body = await request.json().catch(() => null);
+        const settings = body && body.settings;
+        if (!settings || typeof settings !== 'object' || Array.isArray(settings) ||
+            Object.keys(settings).length !== PACK_BRANDS.length ||
+            !PACK_BRANDS.every(brand => {
+              const item = settings[brand];
+              return item && typeof item.enabled === 'boolean' &&
+                Number.isSafeInteger(item.price) && item.price > 0 && item.price <= 1000000 && item.price % 2 === 0;
+            })) {
+          return reply({error:'Revisa los precios (deben ser montos pares) y estados de las siete opciones.'},400);
+        }
+        await env.DB.prepare(`
+          INSERT INTO shop_settings (key,value) VALUES ('pack_settings',?)
+          ON CONFLICT(key) DO UPDATE SET value=excluded.value
+        `).bind(JSON.stringify(settings)).run();
+        return reply({ok:true});
       }
 
       /* PRODUCTOS */
