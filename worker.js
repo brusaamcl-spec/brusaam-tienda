@@ -1221,7 +1221,8 @@ footer .contactInfo {
 <header class="flowerHeader">
 ${floralHeader}
 <img id="shopLogo" class="logo"
- src="${BR.logo}" alt="Logo Brusaam">
+ alt="Logo Brusaam" decoding="async"
+ style="visibility:hidden;background:transparent">
 <div class="slogan">Articulos de Limpieza y Cuidado Personal</div>
 <strong>Al POR MAYOR Y DETALLE</strong>
 ${admin ? "" : `
@@ -1295,7 +1296,7 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM - TIENDA ONLINE</h1>
+<h1 class="welcome elegantCatalog">Catálogo Brusaam</h1>
 
 <div class="search">
  <span>⌕</span>
@@ -1553,8 +1554,20 @@ function photo(url, alt) {
 
 function decorate(data) {
 
- if (data.logo) {
-  $('shopLogo').src = data.logo;
+ const logo = $('shopLogo');
+ if (logo && data.logo) {
+  // No mostrar el logo predeterminado mientras se consulta D1.
+  // Precargar el logo real antes de hacerlo visible.
+  const image = new Image();
+  image.onload = () => {
+   logo.src = image.src;
+   logo.style.visibility = 'visible';
+  };
+  image.onerror = () => {
+   logo.style.visibility = 'hidden';
+   console.warn('No se pudo cargar el logo configurado en Brusaam.');
+  };
+  image.src = data.logo;
  }
 
  /*
@@ -3953,6 +3966,7 @@ async function refresh() {
  $('logoUrl').value = data.logo || '';
  $('logoPreview').src = data.logo || '';
  $('shopLogo').src = data.logo || '';
+ $('shopLogo').style.visibility = data.logo ? 'visible' : 'hidden';
  $('designUrl').value = data.design || '';
 
  fillCategorySelects();
