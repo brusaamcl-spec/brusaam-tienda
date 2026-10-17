@@ -1675,14 +1675,16 @@ function priceFor(product, kind, quantity) {
 // Ballerina participa únicamente en formato bolsa Doypack.
 function packIdentity(product) {
  if (!product || Number(product.special_only) === 1 || paperProduct(product)) return null;
- const name = normalized(product.name);
- const brand = ['sedal','pantene','suavelina','familand','ballerina']
-  .find(item => new RegExp('(^|[^a-z])' + item + '([^a-z]|$)').test(name));
+ // Convención del catálogo: SH o Acond siempre al comienzo del nombre.
+ const name = normalized(product.name || '').trim();
+ const isShampoo = name === 'sh' || name.startsWith('sh ') || name.startsWith('sh.') || name.startsWith('sh-');
+ const isConditioner = name === 'acond' || name.startsWith('acond ') || name.startsWith('acond.') || name.startsWith('acond-');
+ if (isShampoo === isConditioner) return null;
+ const brands = ['sedal','pantene','suavelina','familand','ballerina'];
+ const brand = brands.find(item => (' ' + name + ' ').includes(' ' + item + ' '));
  if (!brand) return null;
- if (brand === 'ballerina' && !/doy\s*pack|doypack|bolsa/.test(name)) return null;
- const isConditioner = /acondicionador|conditioner|balsamo/.test(name);
- const isShampoo = /shampoo|shampu|champu/.test(name);
- if (isConditioner === isShampoo) return null;
+ // Para Ballerina, solo las fichas cuyo nombre indique Doypack.
+ if (brand === 'ballerina' && !name.includes('doypack') && !name.includes('doy pack')) return null;
  return {brand, type:isShampoo ? 'shampoo' : 'acondicionador'};
 }
 
