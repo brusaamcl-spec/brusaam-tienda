@@ -1267,15 +1267,37 @@ ${floralHeader}
 <div class="slogan">Articulos de Limpieza y Cuidado Personal</div>
 <strong>Al POR MAYOR Y DETALLE</strong>
 ${admin ? "" : `
-<div class="banner">
- <div>🚚 BENEFICIO ESPECIAL</div>
- <strong>¡DESPACHO GRATIS!</strong>
-<p class="freeShippingSubtitle">
- ✨La Serena y Coquimbo · Compras sobre $30.000✨
-</p>
-</div>`}
+ <div class="brusaamHero" aria-label="Promociones BRUSAAM">
+  <div class="brusaamHeroSlide banner active" aria-hidden="false">
+   <div>🚚 BENEFICIO ESPECIAL</div>
+   <strong>¡DESPACHO GRATIS!</strong>
+   <p class="freeShippingSubtitle">✨La Serena y Coquimbo · Compras sobre $30.000✨</p>
+  </div>
+  <div class="brusaamHeroSlide banner" aria-hidden="true">
+   <div>💜 BENEFICIO PARA TUS COMPRAS</div>
+   <strong>¡PRECIO POR MAYOR DESDE 2 UNIDADES!</strong>
+   <p class="freeShippingSubtitle">✨ ¡Combina tus aromas favoritos! ✨</p>
+   <p>Compra 2 o más unidades del mismo producto y formato, iguales o de distintos aromas participantes.</p>
+  </div>
+  <button type="button" class="brusaamHeroArrow prev" aria-label="Promoción anterior" onclick="brusaamHeroMove(-1)">‹</button>
+  <button type="button" class="brusaamHeroArrow next" aria-label="Promoción siguiente" onclick="brusaamHeroMove(1)">›</button>
+  <div class="brusaamHeroDots"><button type="button" class="active" aria-label="Ver despacho gratis" onclick="brusaamHeroShow(0)"></button><button type="button" aria-label="Ver precio por mayor" onclick="brusaamHeroShow(1)"></button></div>
+ </div>`}
 </header>
-<main>${content}</main>
+ <script>
+let brusaamHeroIndex=0;
+function brusaamHeroShow(index){
+ const slides=[...document.querySelectorAll('.brusaamHeroSlide')];
+ const dots=[...document.querySelectorAll('.brusaamHeroDots button')];
+ if(!slides.length)return;
+ brusaamHeroIndex=(index+slides.length)%slides.length;
+ slides.forEach((slide,i)=>{slide.classList.toggle('active',i===brusaamHeroIndex);slide.setAttribute('aria-hidden',String(i!==brusaamHeroIndex));});
+ dots.forEach((dot,i)=>dot.classList.toggle('active',i===brusaamHeroIndex));
+}
+function brusaamHeroMove(step){brusaamHeroShow(brusaamHeroIndex+step)}
+setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},3000);
+</script>
+ <main>${content}</main>
 <footer>
 <div class="footerContent">
 <h3>HAZ CLICK AQUI</h3>
@@ -1687,6 +1709,36 @@ function priceFor(product, kind, quantity) {
   : Number(product.retail);
 }
 
+// Agrupar variantes de aroma con misma línea, formato y precio; no mezclar productos diferentes.
+const brusaamAromas = new Set(['original','lavanda','menta','limon','vinagre','vainilla','berries','berry','bebe','floral','flores','jazmin','coco','manzana','primavera','fresco','fresca','tradicional','citrus','citrico','frutal','frutales','marina','marino','rosas','rosa','azul','verde','morado','lila','rosado','blanco','blanca','manzanilla','palta','almendra','aloe','durazno','tropical','naranja','frutilla']);
+function brusaamWholesaleKey(product){
+ if(!product || Number(product.special_only)===1 || Number(product.ofertas)===1 || paperProduct(product))return '';
+ if(!(Number(product.wholesale)>0) || !(Number(product.wholesale)<Number(product.retail)))return '';
+ const name=normalized(product.name).replace(/(\d)\s+(ml|cc|lt|lts|l|kg|gr|g|un|und|unidades)\b/g,'$1$2');
+ const tokens=name.replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/);
+ const sizes=tokens.filter((t,i)=>/^[0-9]+(?:ml|cc|lt|lts|l|kg|gr|g|un|und|unidades)$/.test(t));
+ if(!sizes.length)return ''; // Sin presentación verificable, no combinar automáticamente.
+ const core=tokens.filter(t=>!brusaamAromas.has(t)).join(' ');
+ if(!core || core===name)return ''; // No inventar equivalencias si no hay aromas reconocibles.
+ return [normalized(product.category),normalized(product.subcategory),core,Number(product.retail),Number(product.wholesale),Number(product.min_qty)||2].join('|');
+}
+function brusaamWholesaleCounts(allocation){
+ const groups={};
+ for(const [key,qty] of Object.entries(cart)){
+  const [id,kind]=key.split(':');if(kind==='manga')continue;
+  const product=store.products.find(p=>String(p.id)===id);
+  const group=brusaamWholesaleKey(product);if(!group)continue;
+  const unpaired=Math.max(0,Number(qty)-(allocation[key]||0));
+  groups[group]=(groups[group]||0)+unpaired;
+ }
+ return groups;
+}
+function brusaamQualifies(product,kind,remaining,allocation){
+ if(kind==='manga'||Number(product.special_only)===1||Number(product.ofertas)===1)return false;
+ const group=brusaamWholesaleKey(product);
+ return group ? (brusaamWholesaleCounts(allocation)[group]||0)>=(Number(product.min_qty)||2) : remaining>=(Number(product.min_qty)||2);
+}
+
 // Pack automático: un shampoo y un acondicionador de la misma marca.
 // Ballerina participa únicamente en formato bolsa Doypack.
 function packIdentity(product) {
@@ -1758,7 +1810,7 @@ function cartLinePrice(product, kind, quantity, key, allocation) {
  const paired = allocation[key] || 0;
  const remaining = quantity - paired;
  const identity = packIdentity(product);
- return paired * packUnitPrice(identity && identity.brand, identity && identity.type) + remaining * priceFor(product,kind,remaining);
+ return paired * packUnitPrice(identity && identity.brand, identity && identity.type) + remaining * (brusaamQualifies(product,kind,remaining,allocation) ? Number(product.wholesale) : priceFor(product,kind,remaining));
 }
 
 function cartLineDiscount(product, kind, quantity, key, allocation) {
@@ -2580,7 +2632,7 @@ function renderCart() {
   const isWholesale =
    Number(product.special_only) !== 1 && !(Number(product.ofertas) === 1 && Number(product.offer_price) > 0) &&
    kind !== 'manga' &&
-   quantity - paired >= (Number(product.min_qty) || 2);
+   brusaamQualifies(product,kind,quantity-paired,allocation);
 
   const priceType = node(
    'div',
