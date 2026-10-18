@@ -1561,7 +1561,7 @@ function brusaamHeroShow(index){
  dots.forEach((dot,i)=>dot.classList.toggle('active',i===brusaamHeroIndex));
 }
 function brusaamHeroMove(step){brusaamHeroShow(brusaamHeroIndex+step)}
-setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},3000);
+setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},6000);
 </script>
  <main>${content}</main>
 <footer>
@@ -1865,45 +1865,42 @@ const BRUSAAM_CART_KEY = 'brusaam_carrito_v1';
 
 // Guardar solamente identificadores, presentación y cantidades.
 // Nombres y precios siempre se consultan desde el catálogo actualizado.
+// Doble respaldo local y de sesión. Guardado automático, sin intervención del cliente.
 function saveBrusaamCart() {
- try {
-  localStorage.setItem(BRUSAAM_CART_KEY, JSON.stringify(cart));
- } catch (error) {
-  console.warn('No se pudo guardar el carrito en este dispositivo.', error);
+ const serialized=JSON.stringify(cart);
+ for(const storage of [localStorage,sessionStorage]){
+  try {storage.setItem(BRUSAAM_CART_KEY,serialized);}catch(error){console.warn('Respaldo de carrito no disponible',error);}
  }
 }
-
 function restoreBrusaamCart() {
- let saved;
- try {
-  saved = JSON.parse(localStorage.getItem(BRUSAAM_CART_KEY) || '{}');
- } catch (error) {
-  saved = {};
+ const candidates=[];
+ for(const storage of [localStorage,sessionStorage]){
+  try {
+   const value=storage.getItem(BRUSAAM_CART_KEY);
+   if(value){const parsed=JSON.parse(value);if(parsed&&typeof parsed==='object'&&!Array.isArray(parsed))candidates.push(parsed);}
+  }catch(error){console.warn('No se pudo leer respaldo de carrito',error);}
  }
- const restored = {};
- if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
-  cart = {};
-  return;
+ // Elegir la copia con más artículos si un almacenamiento quedó desactualizado.
+ const saved=candidates.sort((a,b)=>Object.values(b).reduce((n,v)=>n+(Number(v)||0),0)-Object.values(a).reduce((n,v)=>n+(Number(v)||0),0))[0]||{};
+ const restored={};
+ for(const [key,rawQuantity] of Object.entries(saved)){
+  const match=/^(\\d+):(manga|pack)$/.exec(key);
+  const quantity=Number(rawQuantity);
+  if(!match||!Number.isSafeInteger(quantity)||quantity<=0)continue;
+  const product=store.products.find(p=>String(p.id)===match[1]);
+  if(!product)continue;
+  const unitsPerItem=match[2]==='manga'?Number(product.packs_per_manga):1;
+  if(!Number.isFinite(unitsPerItem)||unitsPerItem<=0)continue;
+  const alreadyUsed=Object.entries(restored).reduce((sum,[k,q])=>k.split(':')[0]===match[1]?sum+q*(k.endsWith(':manga')?Number(product.packs_per_manga):1):sum,0);
+  const available=Math.max(0,Number(product.stock)-alreadyUsed);
+  const allowed=Math.min(quantity,Math.floor(available/unitsPerItem));
+  if(allowed>0)restored[key]=allowed;
  }
- for (const [key, rawQuantity] of Object.entries(saved)) {
-  const match = /^(\\d+):(manga|pack)$/.exec(key);
-  const quantity = Number(rawQuantity);
-  if (!match || !Number.isSafeInteger(quantity) || quantity <= 0) continue;
-  const product = store.products.find(p => String(p.id) === match[1]);
-  if (!product) continue; // Producto eliminado del catálogo.
-  const unitsPerItem = match[2] === 'manga' ? Number(product.packs_per_manga) : 1;
-  if (!Number.isFinite(unitsPerItem) || unitsPerItem <= 0) continue;
-  const alreadyUsed = Object.entries(restored).reduce((sum, [k, q]) => {
-   if (k.split(':')[0] !== match[1]) return sum;
-   return sum + q * (k.endsWith(':manga') ? Number(product.packs_per_manga) : 1);
-  }, 0);
-  const available = Math.max(0, Number(product.stock) - alreadyUsed);
-  const allowed = Math.min(quantity, Math.floor(available / unitsPerItem));
-  if (allowed > 0) restored[key] = allowed;
- }
- cart = restored;
+ cart=restored;
  saveBrusaamCart();
 }
+window.addEventListener('pagehide',saveBrusaamCart);
+window.addEventListener('beforeunload',saveBrusaamCart);
 
 let currentSection = '';
 
@@ -3323,8 +3320,8 @@ $('checkout').onclick = async () => {
   const finalMessage=message+'\n\n📦 *NÚMERO DE PEDIDO:* '+reservationId;
   // Abrir WhatsApp después de registrar el pedido, sin descontar inventario.
   window.location.href='https://wa.me/56966282007?text='+encodeURIComponent(finalMessage);
-  // Pedido registrado; vaciar carrito para evitar duplicados accidentales.
-  cart={};saveBrusaamCart();
+  // Mantener el carrito hasta que el cliente decida modificarlo: abrir WhatsApp no garantiza el envío.
+  saveBrusaamCart();
  } catch(error) {
   alert(error.message+' No se descontó stock.');
  } finally {button.disabled=false;}
