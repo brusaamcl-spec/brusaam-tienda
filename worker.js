@@ -1884,7 +1884,7 @@ function restoreBrusaamCart() {
  const saved=candidates.sort((a,b)=>Object.values(b).reduce((n,v)=>n+(Number(v)||0),0)-Object.values(a).reduce((n,v)=>n+(Number(v)||0),0))[0]||{};
  const restored={};
  for(const [key,rawQuantity] of Object.entries(saved)){
-  const match=/^(\\d+):(manga|pack)$/.exec(key);
+  const match=/^(\d+):(manga|pack)$/.exec(key);
   const quantity=Number(rawQuantity);
   if(!match||!Number.isSafeInteger(quantity)||quantity<=0)continue;
   const product=store.products.find(p=>String(p.id)===match[1]);
