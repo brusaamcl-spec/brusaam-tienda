@@ -309,6 +309,12 @@ async function initialize(env) {
     try { await env.DB.prepare("ALTER TABLE shop_orders ADD COLUMN stock_reserved INTEGER NOT NULL DEFAULT 1").run(); }
     catch(e) { if(!String(e.message).includes('duplicate column')) throw e; }
   }
+  for (const [column,definition] of [['proposed_total','INTEGER'],['revision_note',"TEXT NOT NULL DEFAULT ''"],['review_state',"TEXT NOT NULL DEFAULT 'none'"]]) {
+    if (!(orderColumns.results||[]).some(c=>c.name===column)) {
+      try { await env.DB.prepare('ALTER TABLE shop_orders ADD COLUMN '+column+' '+definition).run(); }
+      catch(e){if(!String(e.message).includes('duplicate column'))throw e;}
+    }
+  }
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS shop_bundle_components (bundle_id INTEGER NOT NULL, component_id INTEGER NOT NULL, quantity INTEGER NOT NULL CHECK(quantity>0), PRIMARY KEY(bundle_id,component_id))`).run();
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS shop_order_items (
@@ -1919,6 +1925,31 @@ let store = {
 
 let cart = {};
 const BRUSAAM_CART_KEY = 'brusaam_carrito_v1';
+const BRUSAAM_PENDING_ORDER_KEY='brusaam_pedido_en_revision_v25';
+function rememberBrusaamPendingOrder(id) {
+ try {localStorage.setItem(BRUSAAM_PENDING_ORDER_KEY,JSON.stringify({id,cart:JSON.stringify(cart)}));}catch(e){console.warn(e);}
+}
+async function checkBrusaamOrderConfirmation() {
+ let pending;
+ try {pending=JSON.parse(localStorage.getItem(BRUSAAM_PENDING_ORDER_KEY)||'null');}catch{return;}
+ if(!pending||!pending.id)return;
+ try {
+  const response=await fetch('/api/orders/status?id='+encodeURIComponent(pending.id),{cache:'no-store'});
+  if(!response.ok)return;
+  const data=await response.json();
+  if(data.status!=='confirmed'&&data.status!=='cancelled'&&data.status!=='expired')return;
+  if(data.status==='confirmed'&&JSON.stringify(cart)===pending.cart){
+   cart={};
+   saveBrusaamCart();
+   renderCart();
+  }
+  localStorage.removeItem(BRUSAAM_PENDING_ORDER_KEY);
+ }catch(e){console.warn('No se pudo consultar la confirmación',e);}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)checkBrusaamOrderConfirmation();});
+window.addEventListener('focus',()=>checkBrusaamOrderConfirmation());
+setInterval(()=>{if(!document.hidden)checkBrusaamOrderConfirmation();},30000);
+
 
 // Guardar solamente identificadores, presentación y cantidades.
 // Nombres y precios siempre se consultan desde el catálogo actualizado.
@@ -3381,6 +3412,7 @@ $('checkout').onclick = async () => {
   const saved=await result.json();
   if (!result.ok || !saved.ok || saved.status!=='pending') throw Error(saved.error||'No se pudo registrar el pedido.');
   const finalMessage=message+'\n\n📦 *NÚMERO DE PEDIDO:* '+reservationId.slice(0,8).toUpperCase();
+  rememberBrusaamPendingOrder(reservationId);
   // Abrir WhatsApp después de registrar el pedido, sin descontar inventario.
   window.location.href='https://wa.me/56966282007?text='+encodeURIComponent(finalMessage);
   // Mantener el carrito hasta que el cliente decida modificarlo: abrir WhatsApp no garantiza el envío.
@@ -3413,6 +3445,7 @@ async function loadShop() {
   } else if (route.startsWith('section:')) openSection(route.slice(8),false);
   else home(false);
   renderCart();
+  await checkBrusaamOrderConfirmation();
  } catch (error) {
   $('products').textContent =
    'No fue posible cargar el catálogo.';
@@ -4951,6 +4984,56 @@ async function renderOrders() {
    section.append(header,details,itemsBox);
    if(order.status==='pending'){
     const note=document.createElement('p');note.className='orderStockNotice';note.textContent='Sin descuento de stock. Verifica primero que recibiste el mensaje por WhatsApp.';section.append(note);
+    if(order.review_state==='awaiting'){
+      const waiting=document.createElement('p');waiting.textContent='💬 Esperando aprobación del cliente · Total propuesto: '+salesMoney(order.proposed_total);section.append(waiting);
+      const approve=document.createElement('button');approve.type='button';approve.textContent='✓ Cliente aceptó los cambios';approve.onclick=async()=>{if(!confirm('¿El cliente confirmó expresamente el pedido actualizado por WhatsApp?'))return;try{await api('/api/admin/orders/'+order.id+'/approve','POST',{});await renderOrders();}catch(e){alert(e.message);}};section.append(approve);
+    }else if(order.review_state==='approved'){
+      const approved=document.createElement('p');approved.textContent='✓ Pedido actualizado y aprobado · Total: '+salesMoney(order.proposed_total);section.append(approved);
+    }
+    if(order.review_state!=='approved'){
+      const edit=document.createElement('button');edit.type='button';edit.textContent='✏️ Editar pedido y enviar actualización';
+      edit.onclick=()=>{
+        if(section.querySelector('.orderEditForm'))return;
+        const form=document.createElement('div');form.className='panel orderEditForm';
+        const heading=document.createElement('h4');heading.textContent='Modificar productos y cantidades';form.append(heading);
+        const list=document.createElement('div');form.append(list);
+        const makeLine=(pid,qty,kind='unidad')=>{
+          const row=document.createElement('div');row.style.cssText='display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0';
+          const select=document.createElement('select');select.style.maxWidth='260px';
+          for(const p of data.products||[])select.add(new Option(p.name+' (#'+p.id+')',p.id));
+          select.value=String(pid);
+          const amount=document.createElement('input');amount.type='number';amount.min='1';amount.max='10000';amount.value=String(qty);amount.style.width='85px';
+          const presentation=document.createElement('select');presentation.add(new Option('Unidad','unidad'));presentation.add(new Option('Manga','manga'));presentation.value=kind;
+          const remove=document.createElement('button');remove.type='button';remove.textContent='Quitar';remove.onclick=()=>row.remove();
+          row.append(select,amount,presentation,remove);list.append(row);return {row,select,amount,presentation};
+        };
+        const lines=(result.items||[]).filter(i=>i.order_id===order.id);
+        for(const line of lines)makeLine(line.product_id,line.quantity,line.kind);
+        const add=document.createElement('button');add.type='button';add.textContent='+ Agregar producto';add.onclick=()=>makeLine((data.products||[])[0]?.id||0,1);form.append(add);
+        const totalLabel=document.createElement('label');totalLabel.textContent='Nuevo total del pedido ($ CLP)';
+        const totalInput=document.createElement('input');totalInput.type='number';totalInput.min='0';totalInput.step='1';totalInput.required=true;totalInput.value=order.proposed_total??'';
+        totalLabel.append(totalInput);form.append(totalLabel);
+        const noteLabel=document.createElement('label');noteLabel.textContent='Motivo de la modificación';
+        const noteInput=document.createElement('textarea');noteInput.value=order.revision_note||'Productos sin disponibilidad física';noteLabel.append(noteInput);form.append(noteLabel);
+        const save=document.createElement('button');save.type='button';save.textContent='Guardar cambios y preparar WhatsApp';
+        save.onclick=async()=>{
+          const items=[...list.children].map(r=>({product_id:Number(r.children[0].value),quantity:Number(r.children[1].value),kind:r.children[2].value}));
+          const total=Number(totalInput.value);
+          if(!items.length||!totalInput.value||!Number.isSafeInteger(total)||total<0){alert('Revisa productos y total.');return;}
+          if(!confirm('¿Guardar pedido corregido y marcarlo como esperando aprobación?'))return;
+          save.disabled=true;
+          try{
+            await api('/api/admin/orders/'+order.id+'/edit','POST',{items,total,note:noteInput.value});
+            const lines=items.map(i=>{const p=(data.products||[]).find(p=>Number(p.id)===i.product_id);return '• '+(p?.name||'Producto')+' — '+i.quantity+' '+i.kind+'(s)';});
+            const msg='🛍️ *BRUSAAM*\\n💜 *PEDIDO ACTUALIZADO #'+orderShortCode(order.id)+'*\\n\\n'+lines.join('\\n')+'\\n\\n💰 *Nuevo total: '+salesMoney(total)+'*\\n📝 '+noteInput.value+'\\n\\nPor favor, confirma si estás de acuerdo con los cambios. *No procesaremos el pedido hasta tu aprobación.*';
+            window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank','noopener');
+            await renderOrders();
+          }catch(e){alert(e.message);save.disabled=false;}
+        };
+        form.append(save);section.insertBefore(form,actions);
+      };
+      section.append(edit);
+    }
     const actions=document.createElement('div');actions.className='orderActions';
     for(const [action,label] of [['confirm','✓ Confirmar y descontar stock'],['cancel','✕ Rechazar pedido']]){
      const btn=document.createElement('button');btn.type='button';btn.textContent=label;
@@ -4958,8 +5041,9 @@ async function renderOrders() {
      btn.onclick=async()=>{
       let payload={};
       if(action==='confirm'){
+       if(order.review_state==='awaiting'){alert('Primero registra la aprobación del cliente.');return;}
        if(!confirm('¿Ya recibiste este pedido en WhatsApp? Al confirmar se descontará el stock disponible.'))return;
-       const entered=prompt('Total REAL cobrado ($ CLP), incluidos descuentos y despacho. Escribe solo números:','');
+       const entered=prompt('Total REAL cobrado ($ CLP), incluidos descuentos y despacho. Escribe solo números:',order.review_state==='approved'?String(order.proposed_total):'');
        if(entered===null)return;
        if(!/^\\d+$/.test(entered.trim())){alert('Ingresa un monto válido, sin puntos ni símbolos.');return;}
        payload={total:Number(entered)};
@@ -5315,6 +5399,8 @@ async function confirmOrderSale(env,id,total) {
  if(!validSaleAmount(total))return reply({error:'Indica el total cobrado en pesos chilenos.'},400);
  const order=await env.DB.prepare("SELECT * FROM shop_orders WHERE id=?").bind(id).first();
  if(!order||order.status!=='pending')return reply({error:'El pedido ya no está pendiente.'},409);
+ if(order.review_state==='awaiting')return reply({error:'Primero debes registrar la aprobación del cliente.'},409);
+ if(order.review_state==='approved'&&Number(order.proposed_total)!==total)return reply({error:'El total debe coincidir con el pedido actualizado y aprobado.'},400);
  const items=(await env.DB.prepare("SELECT * FROM shop_order_items WHERE order_id=?").bind(id).all()).results||[];
  const needed=new Map();
  for(const item of items)needed.set(item.product_id,(needed.get(item.product_id)||0)+Number(item.stock_units));
@@ -5438,6 +5524,14 @@ export default {
         const data = await getData(env);
 
         return reply(data.products);
+      }
+
+      if (path === '/api/orders/status' && method === 'GET') {
+        await initialize(env);
+        const id=new URL(request.url).searchParams.get('id')||'';
+        if(!/^[a-f0-9-]{36}$/i.test(id))return reply({error:'Pedido inválido'},400);
+        const order=await env.DB.prepare('SELECT status FROM shop_orders WHERE id=?').bind(id).first();
+        return order?reply({status:order.status}):reply({error:'Pedido no encontrado'},404);
       }
 
       if (path === '/api/orders/reserve' && method === 'POST') {
@@ -5631,6 +5725,44 @@ export default {
         const orders=(await env.DB.prepare('SELECT * FROM shop_orders ORDER BY created_at DESC LIMIT 250').all()).results || [];
         const items=(await env.DB.prepare('SELECT * FROM shop_order_items WHERE order_id IN (SELECT id FROM shop_orders ORDER BY created_at DESC LIMIT 250)').all()).results || [];
         return reply({orders,items});
+      }
+      const editMatch=path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})\/(edit|approve)$/i);
+      if(editMatch&&method==='POST'){
+        const id=editMatch[1],action=editMatch[2];
+        const order=await env.DB.prepare('SELECT * FROM shop_orders WHERE id=?').bind(id).first();
+        if(!order||order.status!=='pending')return reply({error:'Solo puedes modificar pedidos pendientes.'},409);
+        if(action==='approve'){
+          if(order.review_state!=='awaiting')return reply({error:'El pedido no está esperando aprobación.'},409);
+          await env.DB.prepare("UPDATE shop_orders SET review_state='approved' WHERE id=? AND status='pending'").bind(id).run();
+          return reply({ok:true});
+        }
+        if(order.review_state==='approved')return reply({error:'El pedido aprobado no puede modificarse sin iniciar una nueva revisión.'},409);
+        if(Number(order.stock_reserved)===1)return reply({error:'Pedido antiguo con stock reservado: no se puede editar de forma segura.'},409);
+        const body=await request.json().catch(()=>null);
+        const lines=body?.items;
+        if(!Array.isArray(lines)||!lines.length||lines.length>60)return reply({error:'Agrega al menos un producto.'},400);
+        const total=Number(body.total);
+        if(!validSaleAmount(total))return reply({error:'Total inválido.'},400);
+        const note=cleanOrderText(body.note,500);
+        const rows=[],used=new Set();
+        for(const line of lines){
+          const pid=Number(line.product_id),qty=Number(line.quantity),kind=String(line.kind||'unidad');
+          if(!Number.isSafeInteger(pid)||pid<1||!Number.isSafeInteger(qty)||qty<1||qty>10000||!['unidad','manga'].includes(kind))return reply({error:'Producto, cantidad o presentación inválida.'},400);
+          const key=pid+':'+kind;if(used.has(key))return reply({error:'Producto repetido. Agrupa las cantidades.'},400);used.add(key);
+          const product=await env.DB.prepare('SELECT id,name,active,packs_per_manga FROM products WHERE id=?').bind(pid).first();
+          if(!product||Number(product.active)!==1)return reply({error:'Producto no disponible.'},409);
+          const per=kind==='manga'?Number(product.packs_per_manga):1;
+          if(!Number.isSafeInteger(per)||per<1||(kind==='manga'&&per<2))return reply({error:'Presentación de manga inválida.'},400);
+          const units=qty*per;
+          if(!Number.isSafeInteger(units))return reply({error:'Cantidad demasiado grande.'},400);
+          rows.push({pid,kind,qty,units,name:product.name});
+        }
+        const batch=[
+          env.DB.prepare("UPDATE shop_orders SET proposed_total=?,revision_note=?,review_state='awaiting' WHERE id=? AND status='pending'").bind(total,note,id),
+          env.DB.prepare('DELETE FROM shop_order_items WHERE order_id=?').bind(id)
+        ];
+        for(const r of rows)batch.push(env.DB.prepare('INSERT INTO shop_order_items(order_id,product_id,kind,quantity,stock_units,product_name) VALUES(?,?,?,?,?,?)').bind(id,r.pid,r.kind,r.qty,r.units,r.name));
+        try{await env.DB.batch(batch);return reply({ok:true});}catch(e){return reply({error:'No fue posible guardar la revisión.'},409);}
       }
       const orderAction=path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})\/(confirm|cancel)$/i);
       if (orderAction && method === 'POST') {
