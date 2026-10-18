@@ -1093,6 +1093,12 @@ footer{
 .bundleEditor legend{font-weight:800;color:#583198}
 .bundleComponentRow{display:grid;grid-template-columns:minmax(0,1fr) 90px auto;gap:8px;align-items:center;margin:7px 0}
 .bundleComponentRow select,.bundleComponentRow input{margin:0}
+.bundlePartPicker{position:relative;min-width:0}
+.bundlePartPicker .bundlePartSearch{width:100%;margin:0}
+.bundleSuggestions{position:absolute;z-index:90;left:0;right:0;top:100%;max-height:235px;overflow-y:auto;background:white;border:1px solid #cbb8e8;border-radius:9px;box-shadow:0 8px 22px #20133b30}
+.bundleSuggestions[hidden]{display:none}
+.bundleSuggestions .bundleSuggestion{display:block;width:100%;text-align:left;background:white;color:#21335c;border-radius:0;padding:10px;border-bottom:1px solid #eee;font-weight:500;white-space:normal}
+.bundleSuggestions .bundleSuggestion:hover,.bundleSuggestions .bundleSuggestion:focus{background:#f0e8fb;color:#53229a}
 @media(max-width:600px){.bundleComponentRow{grid-template-columns:minmax(0,1fr) 72px auto}.bundleComponentRow button{padding:9px 6px}}
 /* V14 · Visibilidad de pedidos pendientes, sin alterar el inventario */
 .pendingOrdersBadge{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 7px;border-radius:99px;background:#d63b68;color:#fff;font-size:12px;font-weight:900;margin-left:5px}
@@ -4103,16 +4109,38 @@ function bundleOptions(selected){
 }
 function addBundleEditorRow(containerId,selectedId='',qty=1){
  const root=$(containerId),row=document.createElement('div');row.className='bundleComponentRow';
- const select=document.createElement('select');select.className='bundlePartId';
- select.add(new Option('Seleccionar producto',''));
  const current=containerId==='specialComponents'?$('specialId').value:$('pId').value;
- for(const p of bundleOptions(current))select.add(new Option(p.name+' (#'+p.id+')',String(p.id)));
- select.value=String(selectedId);
+ const choices=bundleOptions(current);
+ const picker=document.createElement('div');picker.className='bundlePartPicker';
+ const search=document.createElement('input');search.type='search';search.className='bundlePartSearch';
+ search.placeholder='Escribe nombre o código del producto';search.autocomplete='off';
+ search.setAttribute('aria-label','Buscar componente del pack');
+ const hidden=document.createElement('input');hidden.type='hidden';hidden.className='bundlePartId';
+ const list=document.createElement('div');list.className='bundleSuggestions';list.hidden=true;
+ function choose(p){hidden.value=String(p.id);search.value=p.name+' (#'+p.id+')';list.hidden=true;list.replaceChildren();search.setCustomValidity('');}
+ function results(){
+  const query=search.value.trim().toLocaleLowerCase('es');
+  list.replaceChildren();hidden.value='';
+  if(!query){list.hidden=true;return;}
+  const matches=choices.filter(p=>(p.name+' '+p.id).toLocaleLowerCase('es').includes(query)).slice(0,12);
+  for(const p of matches){const option=document.createElement('button');option.type='button';option.className='bundleSuggestion';option.textContent=p.name+' (#'+p.id+')';option.addEventListener('pointerdown',e=>e.preventDefault());option.onclick=()=>choose(p);list.append(option);}
+  list.hidden=!matches.length;
+ }
+ search.addEventListener('input',results);
+ search.addEventListener('focus',()=>{if(!hidden.value&&search.value.trim())results();});
+ search.addEventListener('keydown',e=>{if(e.key==='Escape')list.hidden=true;else if(e.key==='Enter'&&!list.hidden){const first=list.querySelector('button');if(first){e.preventDefault();first.click();}}});
+ search.addEventListener('blur',()=>{setTimeout(()=>{list.hidden=true;},150);});
+ if(selectedId){const existing=choices.find(p=>String(p.id)===String(selectedId));if(existing)choose(existing);}
  const input=document.createElement('input');input.type='number';input.min='1';input.max='10000';input.value=String(qty);input.className='bundlePartQty';input.title='Cantidad por pack';
  const remove=document.createElement('button');remove.type='button';remove.className='danger small';remove.textContent='Quitar';remove.onclick=()=>row.remove();
- row.append(select,input,remove);root.append(row);
+ picker.append(search,hidden,list);row.append(picker,input,remove);root.append(row);
 }
-function readBundleEditor(containerId){return [...$(containerId).querySelectorAll('.bundleComponentRow')].map(row=>({id:Number(row.querySelector('select').value),quantity:Number(row.querySelector('input').value)}));}
+function readBundleEditor(containerId){return [...$(containerId).querySelectorAll('.bundleComponentRow')].map(row=>{
+ const id=Number(row.querySelector('.bundlePartId').value);
+ const search=row.querySelector('.bundlePartSearch');
+ if(!id){search.setCustomValidity('Selecciona un producto de las sugerencias.');search.reportValidity();throw Error('Selecciona un producto válido de la lista de sugerencias.');}
+ return {id,quantity:Number(row.querySelector('.bundlePartQty').value)};
+});}
 function fillBundleEditor(containerId,product){$(containerId).replaceChildren();for(const p of product?.components||[])addBundleEditorRow(containerId,p.id,p.quantity);}
 $('addSpecialComponent').onclick=()=>addBundleEditorRow('specialComponents');
 $('addProductComponent').onclick=()=>addBundleEditorRow('productComponents');
