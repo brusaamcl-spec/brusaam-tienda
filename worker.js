@@ -231,7 +231,8 @@ async function initialize(env) {
     ["special_only", "INTEGER NOT NULL DEFAULT 0"],
     ["box_pyme", "INTEGER NOT NULL DEFAULT 0"],
     ["manga_price", "INTEGER NOT NULL DEFAULT 0"],
-    ["packs_per_manga", "INTEGER NOT NULL DEFAULT 0"]
+    ["packs_per_manga", "INTEGER NOT NULL DEFAULT 0"],
+    ["pack_eligible", "INTEGER NOT NULL DEFAULT 1"]
   ];
 
   for (const [column, definition] of newColumns) {
@@ -1777,9 +1778,11 @@ function brusaamQualifies(product,kind,remaining,allocation){
 // Pack automático: un shampoo y un acondicionador de la misma marca.
 // Ballerina participa únicamente en formato bolsa Doypack.
 function packIdentity(product) {
- if (!product || Number(product.special_only) === 1 || paperProduct(product)) return null;
+ if (!product || Number(product.special_only) === 1 || Number(product.pack_eligible) === 0 || paperProduct(product)) return null;
  // Convención del catálogo: SH o Acond siempre al comienzo del nombre.
  const name = normalized(product.name || '').trim();
+ // Sedal: únicamente la presentación 340 ml participa en Arma tu Pack.
+ if (/\bsedal\b/.test(name) && !/\b340\s*(?:ml|cc)\b/.test(name)) return null;
  const isShampoo = name === 'sh' || name.startsWith('sh ') || name.startsWith('sh.') || name.startsWith('sh-');
  const isConditioner = name === 'acond' || name.startsWith('acond ') || name.startsWith('acond.') || name.startsWith('acond-');
  if (isShampoo === isConditioner) return null;
@@ -3113,6 +3116,12 @@ const ADMIN = String.raw`
       maxlength="1000"></textarea>
     </label>
 
+    <label class="checkLabel" style="background:#f5efff;padding:12px;border-radius:10px">
+     <input id="pPackEligible" type="checkbox" checked>
+     💜 Participa en Arma tu Pack
+    </label>
+    <p class="muted">Solo aplica si el producto también cumple las condiciones de marca y presentación del pack.</p>
+
     <label>Precio al detalle
      <input id="pRetail" type="number"
       min="0" required>
@@ -3671,6 +3680,7 @@ function clearProduct() {
  $('pSpecialOnly').value = '0';
  $('pPacksPerManga').value = '0';
  $('pActive').checked = true;
+ $('pPackEligible').checked = true;
 
  fillProductSubs();
 }
@@ -3732,6 +3742,7 @@ function renderProducts() {
 
    $('pActive').checked =
     !!product.active;
+   $('pPackEligible').checked = Number(product.pack_eligible) !== 0;
 
    openTab('products');
 
@@ -3796,6 +3807,7 @@ $('productForm').onsubmit = async event => {
 
  const product = {
   name: $('pName').value.trim(),
+  pack_eligible: $('pPackEligible').checked,
   category: $('pCategory').value,
   subcategory: $('pSub').value,
   description: $('pDescription').value,
@@ -4893,11 +4905,11 @@ export default {
            min_qty,stock,image,active,
            destacados,pack_ahorro,
            ofertas,box_pyme,
-           manga_price,packs_per_manga,offer_price,offer_manga_price,nuevos_ingresos,special_only
+           manga_price,packs_per_manga,offer_price,offer_manga_price,nuevos_ingresos,special_only,pack_eligible
           )
           VALUES(
            ?,?,?,?,?,?,?,?,?,?,
-           ?,?,?,?,?,?,?,?,?,?
+           ?,?,?,?,?,?,?,?,?,?,?
           )
         `).bind(
           product.name.trim(),
@@ -4919,7 +4931,8 @@ export default {
           product.offer_price,
           product.offer_manga_price || 0,
           product.nuevos_ingresos ? 1 : 0,
-          product.special_only ? 1 : 0
+          product.special_only ? 1 : 0,
+          product.pack_eligible === false ? 0 : 1
         ).run();
 
         return reply({
@@ -4962,7 +4975,8 @@ export default {
            offer_price=?,
            offer_manga_price=?,
            nuevos_ingresos=?,
-           special_only=?
+           special_only=?,
+           pack_eligible=?
           WHERE id=?
         `).bind(
           product.name.trim(),
@@ -4985,6 +4999,7 @@ export default {
           product.offer_manga_price || 0,
           product.nuevos_ingresos ? 1 : 0,
           product.special_only ? 1 : 0,
+          product.pack_eligible === false ? 0 : 1,
           Number(productId[1])
         ).run();
 
