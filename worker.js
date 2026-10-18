@@ -4960,7 +4960,7 @@ async function renderOrders() {
   if(!visibleOrders.length){root.textContent='No hay pedidos que coincidan con el estado y las fechas seleccionadas.';return;}
   // La numeración indica el orden de atención entre las solicitudes pendientes.
   // Se calcula antes del filtro de fechas para que el número no cambie al filtrar.
-  const pendingQueue=[...orders].filter(o=>o.status==='pending').sort((a,b)=>Number(a.created_at)-Number(b.created_at)||String(a.id).localeCompare(String(b.id));
+  const pendingQueue=[...orders].filter(o=>o.status==='pending').sort((a,b)=>Number(a.created_at)-Number(b.created_at)||String(a.id).localeCompare(String(b.id)));
   const queuePositions=new Map(pendingQueue.map((o,index)=>[o.id,index+1]));
   for(const order of visibleOrders){
    const section=document.createElement('section');
