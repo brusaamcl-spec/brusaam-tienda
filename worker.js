@@ -290,6 +290,66 @@ async function initialize(env) {
   `).run();
 
   await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS shop_orders (
+      id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','confirmed','cancelled','expired')),
+      customer TEXT NOT NULL,
+      payment_method TEXT NOT NULL,
+      delivery_method TEXT NOT NULL,
+      address TEXT NOT NULL DEFAULT '',
+      region TEXT NOT NULL DEFAULT '',
+      commune TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT ''
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS shop_order_items (
+      order_id TEXT NOT NULL,
+      product_id INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      stock_units INTEGER NOT NULL,
+      product_name TEXT NOT NULL,
+      PRIMARY KEY(order_id, product_id, kind)
+    )
+  `).run();
+  // V11: registro contable separado de las reservas de inventario.
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS shop_sales (
+      id TEXT PRIMARY KEY,
+      order_id TEXT UNIQUE,
+      created_at INTEGER NOT NULL,
+      source TEXT NOT NULL CHECK(source IN ('online','presencial')),
+      customer TEXT NOT NULL DEFAULT '',
+      payment_method TEXT NOT NULL,
+      total INTEGER NOT NULL CHECK(total>=0),
+      notes TEXT NOT NULL DEFAULT ''
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS shop_sale_items (
+      sale_id TEXT NOT NULL,
+      product_id INTEGER,
+      product_name TEXT NOT NULL,
+      quantity INTEGER NOT NULL CHECK(quantity>0),
+      unit_price INTEGER,
+      line_total INTEGER,
+      FOREIGN KEY(sale_id) REFERENCES shop_sales(id)
+    )
+  `).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_shop_sales_created ON shop_sales(created_at)`).run();
+  await env.DB.prepare(`
+    CREATE TABLE IF NOT EXISTS shop_stock_guard (
+      value INTEGER NOT NULL CHECK(value=1)
+    )
+  `).run();
+  await env.DB.prepare(`
+    CREATE INDEX IF NOT EXISTS idx_shop_orders_expiry ON shop_orders(status,expires_at)
+  `).run();
+
+  await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS login_attempts (
       ip TEXT PRIMARY KEY,
       failures INTEGER NOT NULL DEFAULT 0,
@@ -404,6 +464,84 @@ async function getData(env, admin = false) {
     packSettings: safePackSettings(preferences.pack_settings),
     promoGallery: (() => { try { const a=JSON.parse(preferences.promo_gallery || "[]"); return Array.isArray(a) ? a.filter(x=>typeof x==="string" && /^https:\/\//.test(x)).slice(0,20) : []; } catch {return [];} })()
   };
+}
+
+/* RESERVAS V10: transacciones D1 y liberación de stock */
+async function releaseOrder(env, orderId, nextStatus, expiredOnly = false) {
+  const order = await env.DB.prepare('SELECT * FROM shop_orders WHERE id=?').bind(orderId).first();
+  if (!order || order.status !== 'pending') return false;
+  if (expiredOnly && Number(order.expires_at) > Date.now()) return false;
+  const items = (await env.DB.prepare('SELECT * FROM shop_order_items WHERE order_id=?').bind(orderId).all()).results || [];
+  const condition = expiredOnly ? ' AND expires_at<=?' : '';
+  const params = expiredOnly ? [nextStatus,orderId,Date.now()] : [nextStatus,orderId];
+  const statements = [env.DB.prepare('UPDATE shop_orders SET status=? WHERE id=? AND status=\'pending\''+condition).bind(...params),
+    env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'),
+    env.DB.prepare('DELETE FROM shop_stock_guard')];
+  for (const item of items) statements.push(env.DB.prepare('UPDATE products SET stock=stock+? WHERE id=?').bind(item.stock_units,item.product_id));
+  await env.DB.batch(statements);
+  return true;
+}
+async function expireOrders(env) {
+  const expired = (await env.DB.prepare('SELECT id FROM shop_orders WHERE status=\'pending\' AND expires_at<=? LIMIT 100').bind(Date.now()).all()).results || [];
+  for (const order of expired) {
+    try { await releaseOrder(env,order.id,'expired',true); } catch (e) { console.error('Error al liberar reserva',order.id,e); }
+  }
+}
+function cleanOrderText(value,max=250) {
+ return typeof value === 'string' ? value.trim().slice(0,max) : '';
+}
+async function reserveOrder(env, body) {
+  const id = cleanOrderText(body?.id,80);
+  if (!/^[a-f0-9-]{36}$/i.test(id)) return reply({error:'Identificador de pedido inválido.'},400);
+  const existing = await env.DB.prepare('SELECT id,status,expires_at FROM shop_orders WHERE id=?').bind(id).first();
+  if (existing) return reply({ok:true,id,status:existing.status,expires_at:existing.expires_at});
+  const customer=cleanOrderText(body?.customer,160);
+  const payment=cleanOrderText(body?.payment_method,50);
+  const delivery=cleanOrderText(body?.delivery_method,50);
+  if (!customer || !['Efectivo','Transferencia','Tarjeta Débito/Crédito'].includes(payment) || !['pickup','delivery'].includes(delivery)) return reply({error:'Completa los datos del pedido y método de pago.'},400);
+  const address=cleanOrderText(body?.address),region=cleanOrderText(body?.region,100),commune=cleanOrderText(body?.commune,100),notes=cleanOrderText(body?.notes,1000);
+  if (delivery==='delivery' && (!address || !commune)) return reply({error:'Completa la dirección y comuna.'},400);
+  if (!Array.isArray(body?.items) || !body.items.length || body.items.length>100) return reply({error:'Carrito vacío o demasiado grande.'},400);
+  const items=[];
+  const quantities=new Map();
+  for (const line of body.items) {
+    const pid=Number(line.id),qty=Number(line.quantity),kind=line.kind;
+    if (!Number.isSafeInteger(pid)||pid<=0||!Number.isSafeInteger(qty)||qty<=0||qty>10000||!['unidad','manga'].includes(kind)) return reply({error:'Cantidad o presentación inválida.'},400);
+    const key=pid+':'+kind;
+    if (quantities.has(key)) return reply({error:'Producto duplicado en el pedido.'},400);
+    quantities.set(key,qty);
+  }
+  const ids=[...new Set([...quantities.keys()].map(k=>Number(k.split(':')[0])))];
+  const found=await env.DB.prepare('SELECT id,name,stock,active,packs_per_manga FROM products WHERE id IN ('+ids.map(()=>'?').join(',')+')').bind(...ids).all();
+  const products=new Map((found.results||[]).map(p=>[p.id,p]));
+  const required=new Map();
+  for (const [key,quantity] of quantities) {
+    const [idText,kind]=key.split(':'),id=Number(idText),product=products.get(id);
+    if (!product || Number(product.active)!==1) return reply({error:'Uno de los productos ya no está disponible. Actualiza el catálogo.'},409);
+    const per=kind==='manga'?Number(product.packs_per_manga):1;
+    if (!Number.isSafeInteger(per)||per<=0 || (kind==='manga' && per<2)) return reply({error:'Presentación de manga no disponible.'},409);
+    const units=quantity*per;
+    if (!Number.isSafeInteger(units)) return reply({error:'Cantidad excesiva.'},400);
+    required.set(id,(required.get(id)||0)+units);
+    items.push({id,kind,quantity,units,name:product.name});
+  }
+  for (const [id,units] of required) if (Number(products.get(id).stock)<units) return reply({error:'Stock insuficiente. Actualiza el catálogo antes de enviar.'},409);
+  const now=Date.now(),expires=now+24*60*60*1000;
+  const statements=[env.DB.prepare('INSERT INTO shop_orders(id,created_at,expires_at,status,customer,payment_method,delivery_method,address,region,commune,notes) VALUES(?,?,?,\'pending\',?,?,?,?,?,?,?)').bind(id,now,expires,customer,payment,delivery,address,region,commune,notes)];
+  for (const [pid,units] of required) {
+    statements.push(env.DB.prepare('UPDATE products SET stock=stock-? WHERE id=? AND active=1 AND stock>=?').bind(units,pid,units));
+    statements.push(env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'));
+    statements.push(env.DB.prepare('DELETE FROM shop_stock_guard'));
+  }
+  for (const item of items) statements.push(env.DB.prepare('INSERT INTO shop_order_items(order_id,product_id,kind,quantity,stock_units,product_name) VALUES(?,?,?,?,?,?)').bind(id,item.id,item.kind,item.quantity,item.units,item.name));
+  try { await env.DB.batch(statements); }
+  catch(error) {
+    const duplicate=await env.DB.prepare('SELECT id,status,expires_at FROM shop_orders WHERE id=?').bind(id).first();
+    if (duplicate) return reply({ok:true,id,status:duplicate.status,expires_at:duplicate.expires_at});
+    console.error('Reserva rechazada',error);
+    return reply({error:'No se pudo reservar el stock. Es posible que otro cliente haya comprado las últimas unidades. Actualiza el catálogo.'},409);
+  }
+  return reply({ok:true,id,status:'pending',expires_at:expires});
 }
 
 /* ILUSTRACIONES FLORALES */
@@ -1293,6 +1431,83 @@ footer .contactInfo {
  .featuredPanel h2,.shopLeft h2{overflow-wrap:anywhere}
 }
 @media(prefers-reduced-motion:reduce){.flowerHeader .brusaamHeroSlide.banner{animation:none}}
+
+/* V12 · PREMIUM BRUSAAM: exclusivamente presentación de Secciones Especiales */
+#sectionTiles{
+ display:grid!important;
+ grid-template-columns:repeat(5,minmax(0,1fr))!important;
+ gap:15px!important;
+ align-items:stretch;
+}
+#sectionTiles .brusaamSectionTile{
+ display:flex;flex-direction:column;align-items:stretch;
+ position:relative;isolation:isolate;
+ min-width:0;overflow:hidden;
+ border:1px solid #e3e9f4;border-radius:19px;
+ background:#fff;
+ box-shadow:0 5px 20px rgba(23,47,99,.065);
+ padding:10px 10px 0!important;
+ transition:transform .22s ease,box-shadow .22s ease,border-color .22s ease;
+}
+#sectionTiles .brusaamSectionTile:hover{
+ transform:translateY(-4px);border-color:#c7b8eb;
+ box-shadow:0 12px 26px rgba(45,38,104,.13);
+}
+#sectionTiles .brusaamSectionTile:focus-visible{
+ outline:3px solid #8048d9;outline-offset:3px;
+}
+#sectionTiles .brusaamSectionPhoto{
+ display:block;width:100%;height:185px!important;
+ padding:12px!important;border-radius:13px;
+ object-fit:contain!important;object-position:center!important;
+ background:linear-gradient(140deg,#f5faff,#fbf6ff)!important;
+}
+#sectionTiles .brusaamSectionTile strong{
+ display:flex!important;flex:1;align-items:center;justify-content:center;
+ min-height:72px;margin:10px -10px 0;
+ padding:13px 8px 17px!important;
+ background:linear-gradient(105deg,#e9f7ff 0%,#f0edff 100%);
+ border-top:1px solid #e9e7f7;
+ color:#173669!important;
+ font-size:clamp(12px,1.12vw,16px)!important;
+ font-weight:850!important;line-height:1.32!important;
+ letter-spacing:.02em;text-align:center;text-transform:uppercase;
+ white-space:normal!important;overflow-wrap:break-word!important;
+}
+#sectionTiles .brusaamSectionTile strong::after{
+ content:'  →';color:#7132c9;font-weight:900;white-space:pre;
+}
+/* La galería de avisos/horarios se muestra debajo de las secciones comerciales. */
+#sectionTiles .brusaamPromoGallery{
+ grid-column:1 / -1!important;
+ width:100%;min-height:180px;
+ padding:10px;border:1px solid #e6e7f3;border-radius:18px;
+ background:linear-gradient(105deg,#f5fbff,#f9f5ff);
+ box-shadow:0 5px 20px rgba(23,47,99,.055);
+}
+#sectionTiles .brusaamPromoPhoto{
+ width:100%;height:auto;max-height:320px;
+ object-fit:contain!important;border-radius:12px;background:transparent!important;
+}
+@media(max-width:1050px){
+ #sectionTiles{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+ #sectionTiles .brusaamSectionPhoto{height:160px!important}
+}
+@media(max-width:650px){
+ #sectionTiles{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important}
+ #sectionTiles .brusaamSectionTile{border-radius:15px;padding:7px 7px 0!important}
+ #sectionTiles .brusaamSectionPhoto{height:128px!important;padding:7px!important}
+ #sectionTiles .brusaamSectionTile strong{
+  min-height:66px;margin:7px -7px 0;padding:10px 5px 12px!important;
+  font-size:clamp(11px,3.2vw,14px)!important;line-height:1.3!important;
+ }
+ #sectionTiles .brusaamPromoGallery{grid-column:1 / -1!important;min-height:140px;padding:7px}
+ #sectionTiles .brusaamPromoPhoto{max-height:230px}
+}
+@media(prefers-reduced-motion:reduce){
+ #sectionTiles .brusaamSectionTile{transition:none!important}
+ #sectionTiles .brusaamSectionTile:hover{transform:none}
+}
 </style>
 </head>
 <body>
@@ -1332,7 +1547,7 @@ function brusaamHeroShow(index){
  dots.forEach((dot,i)=>dot.classList.toggle('active',i===brusaamHeroIndex));
 }
 function brusaamHeroMove(step){brusaamHeroShow(brusaamHeroIndex+step)}
-setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},5000);
+setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},3000);
 </script>
  <main>${content}</main>
 <footer>
@@ -1632,6 +1847,50 @@ let store = {
 };
 
 let cart = {};
+const BRUSAAM_CART_KEY = 'brusaam_carrito_v1';
+
+// Guardar solamente identificadores, presentación y cantidades.
+// Nombres y precios siempre se consultan desde el catálogo actualizado.
+function saveBrusaamCart() {
+ try {
+  localStorage.setItem(BRUSAAM_CART_KEY, JSON.stringify(cart));
+ } catch (error) {
+  console.warn('No se pudo guardar el carrito en este dispositivo.', error);
+ }
+}
+
+function restoreBrusaamCart() {
+ let saved;
+ try {
+  saved = JSON.parse(localStorage.getItem(BRUSAAM_CART_KEY) || '{}');
+ } catch (error) {
+  saved = {};
+ }
+ const restored = {};
+ if (!saved || typeof saved !== 'object' || Array.isArray(saved)) {
+  cart = {};
+  return;
+ }
+ for (const [key, rawQuantity] of Object.entries(saved)) {
+  const match = /^(\\d+):(manga|pack)$/.exec(key);
+  const quantity = Number(rawQuantity);
+  if (!match || !Number.isSafeInteger(quantity) || quantity <= 0) continue;
+  const product = store.products.find(p => String(p.id) === match[1]);
+  if (!product) continue; // Producto eliminado del catálogo.
+  const unitsPerItem = match[2] === 'manga' ? Number(product.packs_per_manga) : 1;
+  if (!Number.isFinite(unitsPerItem) || unitsPerItem <= 0) continue;
+  const alreadyUsed = Object.entries(restored).reduce((sum, [k, q]) => {
+   if (k.split(':')[0] !== match[1]) return sum;
+   return sum + q * (k.endsWith(':manga') ? Number(product.packs_per_manga) : 1);
+  }, 0);
+  const available = Math.max(0, Number(product.stock) - alreadyUsed);
+  const allowed = Math.min(quantity, Math.floor(available / unitsPerItem));
+  if (allowed > 0) restored[key] = allowed;
+ }
+ cart = restored;
+ saveBrusaamCart();
+}
+
 let currentSection = '';
 
 function normalized(text) {
@@ -2627,6 +2886,7 @@ function discountFor(product, kind, quantity) {
 }
 
 function renderCart() {
+ saveBrusaamCart();
  const root = $('cartItems');
  root.replaceChildren();
  const allocation = packAllocation();
@@ -2900,7 +3160,7 @@ $('goCheckout').onclick = () => {
  });
 };
 
-$('checkout').onclick = () => {
+$('checkout').onclick = async () => {
  if (!Object.keys(cart).length) {
   alert('Agrega productos al carrito.');
   return;
@@ -3025,9 +3285,32 @@ $('checkout').onclick = () => {
   '📲 Brusaam confirmará disponibilidad, pago y coordinación del pedido.'
  ].join('\n');
 
- window.location.href =
-  'https://wa.me/56966282007?text=' +
-  encodeURIComponent(message);
+ const button=$('checkout');
+ button.disabled=true;
+ const reservationId=crypto.randomUUID();
+ try {
+  const items=Object.entries(cart).map(([key,quantity])=>{
+   const [id,kind]=key.split(':');
+   return {id:Number(id),kind,quantity};
+  });
+  const result=await fetch('/api/orders/reserve',{
+   method:'POST',headers:{'Content-Type':'application/json'},
+   credentials:'same-origin',
+   body:JSON.stringify({id:reservationId,items,customer,payment_method:paymentMethod,
+    delivery_method:pickup?'pickup':'delivery',address,
+    region,commune:pan?$('panAzucarSector').value.trim():commune,notes})
+  });
+  const saved=await result.json();
+  if (!result.ok || !saved.ok || saved.status!=='pending') throw Error(saved.error||'No se pudo reservar el pedido.');
+  const finalMessage=message+'\n\n📦 *NÚMERO DE RESERVA:* '+reservationId;
+  // Abrir WhatsApp sólo cuando la reserva quedó registrada en D1.
+  window.location.href='https://wa.me/56966282007?text='+encodeURIComponent(finalMessage);
+  // El pedido ya está reservado; vaciar carrito para evitar otro pedido accidental.
+  cart={};saveBrusaamCart();
+ } catch(error) {
+  alert(error.message+' No se descontó stock si la reserva fue rechazada.');
+ } finally {button.disabled=false;}
+
 };
 
 async function loadShop() {
@@ -3041,6 +3324,7 @@ async function loadShop() {
   store = await response.json();
 
   decorate(store);
+  restoreBrusaamCart();
   fillCategories();
   renderHome();
   const route = decodeURIComponent(location.hash.slice(1));
@@ -3091,6 +3375,8 @@ const ADMIN = String.raw`
   <button data-tab="products" class="active">
    Productos
   </button>
+  <button data-tab="orders">Pedidos y reservas</button>
+  <button data-tab="sales">📊 Informes de ventas</button>
   <button data-tab="packs">
    Arma tu Pack
   </button>
@@ -3108,6 +3394,45 @@ const ADMIN = String.raw`
   </button>
  </div>
 
+ <div id="tab-orders" class="hidden">
+  <section class="panel">
+   <h3>📦 Pedidos y reservas de stock</h3>
+   <p class="muted">Las reservas pendientes duran 24 horas. Confirma el pedido antes del vencimiento o cancélalo para devolver el stock. El vencimiento se procesa al consultar la tienda y mediante un disparador programado.</p>
+   <button type="button" id="refreshOrders">Actualizar pedidos</button>
+   <p id="ordersMessage"></p>
+   <div id="ordersList"></div>
+  </section>
+ </div>
+ <div id="tab-sales" class="hidden">
+  <section class="panel">
+   <h3>📊 Informes de ventas BRUSAAM</h3>
+   <p class="muted">Solo se contabilizan ventas confirmadas y ventas presenciales registradas. Las reservas pendientes no son ventas. Horario de Chile.</p>
+   <div class="flex">
+    <label>Período <select id="salesPeriod"><option value="day">Diario</option><option value="week">Semanal</option><option value="month">Mensual</option></select></label>
+    <label>Fecha de referencia <input type="date" id="salesDate"></label>
+    <button type="button" id="salesRefresh">Ver informe</button>
+    <button type="button" id="salesExcel">Descargar Excel (.xls)</button>
+    <button type="button" id="salesPDF">Guardar como PDF</button>
+   </div>
+   <p id="salesMessage"></p>
+   <div id="salesReport"></div>
+  </section>
+  <section class="panel">
+   <h3>➕ Registrar venta presencial</h3>
+   <p class="muted">Registra los productos y su precio de venta real. El stock se descuenta al guardar. Para ventas sin productos identificados usa la opción de venta sin detalle.</p>
+   <form id="manualSaleForm">
+    <label>Cliente (opcional) <input id="manualCustomer" maxlength="160"></label>
+    <label>Método de pago <select id="manualPayment" required><option>Efectivo</option><option>Transferencia</option><option>Tarjeta Débito/Crédito</option></select></label>
+    <label>Producto <select id="manualProduct"><option value="">Venta sin detalle de productos</option></select></label>
+    <label>Cantidad <input id="manualQuantity" type="number" min="1" step="1" value="1"></label>
+    <label>Precio unitario cobrado ($) <input id="manualPrice" type="number" min="0" step="1" value="0"></label>
+    <label>Total cobrado ($) <input id="manualTotal" type="number" min="0" step="1" value="0" required></label>
+    <label>Observaciones <input id="manualNotes" maxlength="500"></label>
+    <button type="submit">Registrar venta presencial</button>
+   </form>
+   <p id="manualSaleMessage"></p>
+  </section>
+ </div>
  <div id="tab-packs" class="hidden">
   <section class="panel">
    <h3>💜 Arma tu Pack — precios por marca</h3>
@@ -3519,6 +3844,8 @@ function openTab(name) {
 
  for (const tab of [
   'products',
+  'orders',
+  'sales',
   'packs',
   'sections',
   'categories',
@@ -4346,8 +4673,124 @@ $('packSettingsForm').onsubmit = async event => {
  }
 };
 
+let lastSalesReport=null;
+function salesMoney(value){return '$'+Number(value||0).toLocaleString('es-CL');}
+function chileDateValue(date=new Date()) {
+ const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Santiago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);
+ const get=k=>parts.find(p=>p.type===k)?.value;
+ return get('year')+'-'+get('month')+'-'+get('day');
+}
+function populateManualProducts() {
+ const select=$('manualProduct');
+ const old=select.value;select.replaceChildren(new Option('Venta sin detalle de productos',''));
+ for(const p of data.products||[]) select.add(new Option(p.name+' · Stock: '+p.stock,p.id));
+ select.value=old;
+}
+function renderSalesTable(rows,headers) {
+ const table=document.createElement('table');table.style.width='100%';
+ const head=document.createElement('tr');for(const h of headers){const th=document.createElement('th');th.textContent=h;head.append(th);}table.append(head);
+ for(const cells of rows){const tr=document.createElement('tr');for(const cell of cells){const td=document.createElement('td');td.textContent=String(cell);tr.append(td);}table.append(tr);}return table;
+}
+async function renderSales() {
+ const root=$('salesReport');root.replaceChildren();
+ try {
+  const period=$('salesPeriod').value,date=$('salesDate').value||chileDateValue();
+  const result=await api('/api/admin/sales/report?period='+encodeURIComponent(period)+'&date='+encodeURIComponent(date));
+  lastSalesReport=result;
+  const heading=document.createElement('h4');heading.textContent='Ventas '+result.from+' a '+result.to;root.append(heading);
+  const p=document.createElement('p');p.textContent='Total vendido: '+salesMoney(result.total)+' · Ventas: '+result.count+' · Productos: '+result.units+' · Ticket promedio: '+salesMoney(result.average);root.append(p);
+  const byPayment={};const bySource={};for(const x of result.sales){byPayment[x.payment_method]=(byPayment[x.payment_method]||0)+x.total;bySource[x.source]=(bySource[x.source]||0)+x.total;}
+  const summary=document.createElement('p');summary.textContent='Por método de pago: '+Object.entries(byPayment).map(([k,v])=>k+' '+salesMoney(v)).join(' · ')+' | Por canal: '+Object.entries(bySource).map(([k,v])=>k+' '+salesMoney(v)).join(' · ');root.append(summary);
+  const rows=result.sales.map(x=>[new Date(x.created_at).toLocaleString('es-CL',{timeZone:'America/Santiago'}),x.source,x.customer||'—',x.payment_method,salesMoney(x.total),x.id.slice(0,8)]);
+  root.append(renderSalesTable(rows,['Fecha','Origen','Cliente','Pago','Total','ID']));
+  const h=document.createElement('h4');h.textContent='Productos vendidos';root.append(h);
+  root.append(renderSalesTable(result.products.map(x=>[x.product_name,x.quantity,x.amount===null?'No desglosado':salesMoney(x.amount)]),['Producto','Cantidad','Monto detallado']));
+  $('salesMessage').textContent='Informe actualizado.';
+ } catch(e){$('salesMessage').textContent=e.message;}
+}
+$('salesDate').value=chileDateValue();
+$('salesRefresh').onclick=renderSales;
+$('manualProduct').onchange=()=>{const p=(data.products||[]).find(x=>String(x.id)===$('manualProduct').value);if(p){$('manualPrice').value=Number(p.retail)||0;$('manualTotal').value=(Number(p.retail)||0)*Number($('manualQuantity').value||1);}};
+for(const id of ['manualQuantity','manualPrice']) $(id).oninput=()=>{if($('manualProduct').value)$('manualTotal').value=Number($('manualQuantity').value||0)*Number($('manualPrice').value||0);};
+$('manualSaleForm').onsubmit=async e=>{
+ e.preventDefault();
+ if(!confirm('¿Registrar esta venta y descontar stock si corresponde?'))return;
+ const pid=$('manualProduct').value;
+ const body={customer:$('manualCustomer').value,payment_method:$('manualPayment').value,total:Number($('manualTotal').value),notes:$('manualNotes').value,items:pid?[{id:Number(pid),quantity:Number($('manualQuantity').value),unit_price:Number($('manualPrice').value)}]:[]};
+ try{await api('/api/admin/sales/manual','POST',body);$('manualSaleForm').reset();$('manualSaleMessage').textContent='Venta registrada correctamente.';await refresh();await renderSales();}
+ catch(err){$('manualSaleMessage').textContent=err.message;}
+};
+function exportSalesExcel(){
+ if(!lastSalesReport){alert('Primero genera el informe.');return;}
+ const r=lastSalesReport;
+ const escapeXml=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+ const row=cells=>'<Row>'+cells.map(v=>'<Cell><Data ss:Type="String">'+escapeXml(v)+'</Data></Cell>').join('')+'</Row>';
+ const rows=[['BRUSAAM · Informe '+r.from+' a '+r.to],['Total',r.total],['Ventas',r.count],['Productos',r.units],[],['Fecha','Origen','Cliente','Método de pago','Total','ID']];
+ for(const x of r.sales) rows.push([new Date(x.created_at).toLocaleString('es-CL',{timeZone:'America/Santiago'}),x.source,x.customer,x.payment_method,x.total,x.id]);
+ rows.push([],['Producto','Cantidad','Monto detallado']);for(const x of r.products)rows.push([x.product_name,x.quantity,x.amount??'No desglosado']);
+ const xml='<?xml version="1.0" encoding="UTF-8"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Ventas"><Table>'+rows.map(row).join('')+'</Table></Worksheet></Workbook>';
+ const url=URL.createObjectURL(new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='BRUSAAM_ventas_'+r.from+'_'+r.to+'.xls';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$('salesExcel').onclick=exportSalesExcel;
+$('salesPDF').onclick=()=>{
+ if(!lastSalesReport){alert('Primero genera el informe.');return;}
+ const r=lastSalesReport,w=window.open('','_blank');if(!w){alert('Permite ventanas emergentes para guardar el PDF.');return;}
+ const esc=x=>String(x??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+ const rows=r.sales.map(x=>'<tr><td>'+esc(new Date(x.created_at).toLocaleString('es-CL',{timeZone:'America/Santiago'}))+'</td><td>'+esc(x.source)+'</td><td>'+esc(x.payment_method)+'</td><td>'+esc(salesMoney(x.total))+'</td></tr>').join('');
+ w.document.write('<!doctype html><html lang="es"><meta charset="utf-8"><title>BRUSAAM Informe</title><style>body{font-family:Arial;padding:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:7px;text-align:left}@media print{button{display:none}}</style><h1>BRUSAAM · Informe de ventas</h1><p>'+esc(r.from)+' a '+esc(r.to)+'</p><h2>Total: '+esc(salesMoney(r.total))+'</h2><p>Ventas: '+r.count+' · Unidades: '+r.units+'</p><table><tr><th>Fecha</th><th>Origen</th><th>Pago</th><th>Total</th></tr>'+rows+'</table><p>Solo ventas registradas y confirmadas.</p><button onclick="window.print()">Imprimir / Guardar como PDF</button></html>');w.document.close();w.focus();
+};
+
+async function renderOrders() {
+ const root=$('ordersList');
+ root.replaceChildren();
+ try {
+  const result=await api('/api/admin/orders');
+  if (!result.orders.length) {root.textContent='Todavía no hay pedidos registrados.';return;}
+  for (const order of result.orders) {
+   const section=document.createElement('section');section.className='panel';
+   const heading=document.createElement('h4');
+   heading.textContent='Pedido '+order.id.slice(0,8)+' · '+order.status.toUpperCase();
+   const details=document.createElement('p');
+   details.style.whiteSpace='pre-line';
+   details.textContent='Cliente: '+order.customer+'\nPago: '+order.payment_method+'\nEntrega: '+order.delivery_method+'\nDirección: '+order.address+' '+order.commune+' '+order.region+'\nFecha: '+new Date(order.created_at).toLocaleString('es-CL')+'\nVence: '+new Date(order.expires_at).toLocaleString('es-CL')+'\nObservaciones: '+order.notes;
+   section.append(heading,details);
+   for (const item of result.items.filter(i=>i.order_id===order.id)) {
+    const p=document.createElement('p');
+    p.textContent=item.product_name+' · '+item.quantity+' '+item.kind+'(s) · '+item.stock_units+' unidades reservadas';
+    section.append(p);
+   }
+   if(order.status==='pending') {
+    for (const [action,label] of [['confirm','Confirmar pedido'],['cancel','Cancelar y devolver stock']]) {
+     const btn=document.createElement('button');btn.type='button';btn.textContent=label;
+     btn.onclick=async()=>{
+      if (!confirm(label+'?'))return;
+      btn.disabled=true;
+      try {
+       let payload={};
+       if(action==='confirm') {
+        const entered=prompt('Total REAL cobrado por este pedido ($ CLP). Ingresa el monto final, incluidos descuentos y despacho:', '');
+        if(entered===null){btn.disabled=false;return;}
+        if(!/^\d+$/.test(entered.trim())) throw Error('Ingresa un monto válido, sin puntos ni símbolos.');
+        payload={total:Number(entered)};
+       }
+       await api('/api/admin/orders/'+order.id+'/'+action,'POST',payload);
+       await refresh();
+       if(action==='confirm') renderSales();
+      }
+      catch(e){alert(e.message);btn.disabled=false;}
+     };
+     section.append(btn);
+    }
+   }
+   root.append(section);
+  }
+ } catch(e) {$('ordersMessage').textContent=e.message;}
+}
+$('refreshOrders').onclick=renderOrders;
+
 async function refresh() {
  data = await api('/api/admin/data');
+ populateManualProducts();
 
  $('logoUrl').value = data.logo || '';
  $('logoPreview').src = data.logo || '';
@@ -4359,6 +4802,7 @@ async function refresh() {
 
  renderProducts();
  renderPackSettings();
+ await renderOrders();
  renderSections();
  renderPromoGallery();
  renderCategories();
@@ -4654,9 +5098,60 @@ async function uploadImage(request, env) {
   });
 }
 
+/* V11: ventas confirmadas y presenciales. */
+function validSaleAmount(value){return Number.isSafeInteger(value)&&value>=0&&value<=1000000000;}
+async function confirmOrderSale(env,id,total) {
+ if(!validSaleAmount(total))return reply({error:'Indica el total cobrado en pesos chilenos.'},400);
+ const order=await env.DB.prepare('SELECT * FROM shop_orders WHERE id=?').bind(id).first();
+ if(!order||order.status!=='pending'||order.expires_at<=Date.now())return reply({error:'La reserva ya no está pendiente o venció.'},409);
+ const items=(await env.DB.prepare('SELECT * FROM shop_order_items WHERE order_id=?').bind(id).all()).results||[];
+ const saleId=crypto.randomUUID(),now=Date.now();
+ const batch=[env.DB.prepare("UPDATE shop_orders SET status='confirmed' WHERE id=? AND status='pending' AND expires_at>?").bind(id,now),env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'),env.DB.prepare('DELETE FROM shop_stock_guard'),env.DB.prepare("INSERT INTO shop_sales(id,order_id,created_at,source,customer,payment_method,total,notes) VALUES(?,?,?,'online',?,?,?,?)").bind(saleId,id,now,order.customer,order.payment_method,total,order.notes)];
+ for(const item of items)batch.push(env.DB.prepare('INSERT INTO shop_sale_items(sale_id,product_id,product_name,quantity,unit_price,line_total) VALUES(?,?,?,?,NULL,NULL)').bind(saleId,item.product_id,item.product_name,item.stock_units));
+ try{await env.DB.batch(batch);return reply({ok:true,sale_id:saleId});}catch(e){console.error('Error al confirmar venta',e);return reply({error:'No se pudo confirmar la venta. Revisa el estado del pedido.'},409);}
+}
+async function manualSale(env,body){
+ const total=Number(body?.total),payment=cleanOrderText(body?.payment_method,50),customer=cleanOrderText(body?.customer,160),notes=cleanOrderText(body?.notes,500);
+ if(!validSaleAmount(total)||!['Efectivo','Transferencia','Tarjeta Débito/Crédito'].includes(payment))return reply({error:'Monto o método de pago inválido.'},400);
+ const input=body?.items||[];if(!Array.isArray(input)||input.length>30)return reply({error:'Detalle inválido.'},400);
+ const items=[];const needed=new Map();
+ for(const line of input){const id=Number(line.id),quantity=Number(line.quantity),price=Number(line.unit_price);if(!Number.isSafeInteger(id)||id<=0||!Number.isSafeInteger(quantity)||quantity<=0||!validSaleAmount(price))return reply({error:'Producto, cantidad o precio inválido.'},400);needed.set(id,(needed.get(id)||0)+quantity);items.push({id,quantity,price});}
+ if(items.length&&items.reduce((n,x)=>n+x.quantity*x.price,0)!==total)return reply({error:'El total debe coincidir con cantidad × precio unitario.'},400);
+ const ids=[...needed.keys()],products=new Map();
+ if(ids.length){const result=await env.DB.prepare('SELECT id,name,stock FROM products WHERE id IN ('+ids.map(()=>'?').join(',')+')').bind(...ids).all();for(const p of result.results||[])products.set(p.id,p);}
+ for(const [id,quantity] of needed){if(!products.has(id)||Number(products.get(id).stock)<quantity)return reply({error:'Stock insuficiente para la venta presencial.'},409);}
+ const saleId=crypto.randomUUID(),now=Date.now(),batch=[env.DB.prepare("INSERT INTO shop_sales(id,order_id,created_at,source,customer,payment_method,total,notes) VALUES(?,NULL,?,'presencial',?,?,?,?)").bind(saleId,now,customer,payment,total,notes)];
+ for(const [id,quantity] of needed){batch.push(env.DB.prepare('UPDATE products SET stock=stock-? WHERE id=? AND stock>=?').bind(quantity,id,quantity));batch.push(env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'));batch.push(env.DB.prepare('DELETE FROM shop_stock_guard'));}
+ for(const item of items)batch.push(env.DB.prepare('INSERT INTO shop_sale_items(sale_id,product_id,product_name,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?)').bind(saleId,item.id,products.get(item.id).name,item.quantity,item.price,item.quantity*item.price));
+ try{await env.DB.batch(batch);return reply({ok:true,id:saleId});}catch(e){console.error('Error al registrar venta presencial',e);return reply({error:'No se pudo registrar la venta; verifica stock y reintenta.'},409);}
+}
+function chileDateParts(timestamp){
+ const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Santiago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(timestamp));
+ const get=k=>parts.find(p=>p.type===k).value;return get('year')+'-'+get('month')+'-'+get('day');
+}
+async function salesReport(env,url){
+ const period=url.searchParams.get('period')||'day',date=url.searchParams.get('date')||chileDateParts(Date.now());
+ if(!['day','week','month'].includes(period)||!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+'T12:00:00Z')))return reply({error:'Fecha o período inválido.'},400);
+ const base=new Date(date+'T12:00:00Z');if(base.toISOString().slice(0,10)!==date)return reply({error:'Fecha inválida.'},400);
+ const from=new Date(base);if(period==='week'){const offset=(from.getUTCDay()+6)%7;from.setUTCDate(from.getUTCDate()-offset);}if(period==='month')from.setUTCDate(1);
+ const until=new Date(from);if(period==='day')until.setUTCDate(until.getUTCDate()+1);if(period==='week')until.setUTCDate(until.getUTCDate()+7);if(period==='month')until.setUTCMonth(until.getUTCMonth()+1);
+ const first=from.toISOString().slice(0,10),last=new Date(until.getTime()-86400000).toISOString().slice(0,10);
+ // Consulta acotada y filtrado por día civil de Chile para respetar cambios de horario de verano.
+ const low=Date.parse(first+'T00:00:00Z')-24*3600000,high=Date.parse(until.toISOString().slice(0,10)+'T00:00:00Z')+24*3600000;
+ const candidates=(await env.DB.prepare('SELECT * FROM shop_sales WHERE created_at>=? AND created_at<? ORDER BY created_at DESC LIMIT 10000').bind(low,high).all()).results||[];
+ const sales=candidates.filter(x=>{const d=chileDateParts(x.created_at);return d>=first&&d<=last;});
+ const ids=sales.map(x=>x.id),products=new Map();
+ for(let i=0;i<ids.length;i+=75){const chunk=ids.slice(i,i+75);const rows=(await env.DB.prepare('SELECT * FROM shop_sale_items WHERE sale_id IN ('+chunk.map(()=>'?').join(',')+')').bind(...chunk).all()).results||[];for(const item of rows){const key=item.product_name;const entry=products.get(key)||{product_name:key,quantity:0,amount:0,unknown:false};entry.quantity+=item.quantity;if(item.line_total===null)entry.unknown=true;else entry.amount+=item.line_total;products.set(key,entry);}}
+ const total=sales.reduce((n,x)=>n+x.total,0),units=[...products.values()].reduce((n,x)=>n+x.quantity,0);
+ return reply({from:first,to:last,period,count:sales.length,total,units,average:sales.length?Math.round(total/sales.length):0,sales,products:[...products.values()].map(x=>({product_name:x.product_name,quantity:x.quantity,amount:x.unknown?null:x.amount})).sort((a,b)=>b.quantity-a.quantity)});
+}
+
 /* SERVIDOR CLOUDFLARE WORKERS */
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil((async()=>{await initialize(env);await expireOrders(env);})());
+  },
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -4689,6 +5184,7 @@ export default {
         method === "GET"
       ) {
         await initialize(env);
+        await expireOrders(env);
 
         return reply(
           await getData(env)
@@ -4704,6 +5200,14 @@ export default {
         const data = await getData(env);
 
         return reply(data.products);
+      }
+
+      if (path === '/api/orders/reserve' && method === 'POST') {
+        if (!checkOrigin(request)) return reply({error:'Origen no permitido'},403);
+        await initialize(env);
+        await expireOrders(env);
+        const body=await request.json().catch(()=>null);
+        return reserveOrder(env,body);
       }
 
       if (!path.startsWith("/api/admin/")) {
@@ -4884,6 +5388,28 @@ export default {
       }
 
       await initialize(env);
+
+      /* RESERVAS Y PEDIDOS V10 */
+      if (path === '/api/admin/orders' && method === 'GET') {
+        await expireOrders(env);
+        const orders=(await env.DB.prepare('SELECT * FROM shop_orders ORDER BY created_at DESC LIMIT 250').all()).results || [];
+        const items=(await env.DB.prepare('SELECT * FROM shop_order_items WHERE order_id IN (SELECT id FROM shop_orders ORDER BY created_at DESC LIMIT 250)').all()).results || [];
+        return reply({orders,items});
+      }
+      const orderAction=path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})\/(confirm|cancel)$/i);
+      if (orderAction && method === 'POST') {
+        const [,id,action]=orderAction;
+        if (action==='cancel') {
+          const released=await releaseOrder(env,id,'cancelled');
+          return released?reply({ok:true}):reply({error:'El pedido no está pendiente o ya fue procesado.'},409);
+        }
+        const body=await request.json().catch(()=>null);
+        return confirmOrderSale(env,id,Number(body?.total));
+      }
+
+      /* INFORMES Y VENTAS V11 — rutas autenticadas del administrador */
+      if(path==='/api/admin/sales/report' && method==='GET') return salesReport(env,url);
+      if(path==='/api/admin/sales/manual' && method==='POST') return manualSale(env,await request.json().catch(()=>null));
 
       /* DATOS DE ADMINISTRACIÓN */
 
