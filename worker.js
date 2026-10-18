@@ -1100,6 +1100,17 @@ footer{
 .bundleSuggestions .bundleSuggestion{display:block;width:100%;text-align:left;background:white;color:#21335c;border-radius:0;padding:10px;border-bottom:1px solid #eee;font-weight:500;white-space:normal}
 .bundleSuggestions .bundleSuggestion:hover,.bundleSuggestions .bundleSuggestion:focus{background:#f0e8fb;color:#53229a}
 @media(max-width:600px){.bundleComponentRow{grid-template-columns:minmax(0,1fr) 72px auto}.bundleComponentRow button{padding:9px 6px}}
+.orderFilterBar{display:flex;gap:9px;flex-wrap:wrap;margin:13px 0 17px}
+.orderFilterButton{background:#f3effa;color:#54358d;border:1px solid #e4d9f3;padding:10px 13px;font-size:13px}
+.orderFilterButton.active{background:#6725c7;color:#fff;border-color:#6725c7}
+.orderFilterButton span{display:inline-block;min-width:22px;border-radius:20px;background:#ffffff35;padding:2px 5px;margin-left:4px}
+.orderFilterButton:not(.active) span{background:#e4daf2}
+@media(max-width:600px){.orderFilterButton{flex:1 1 44%}}
+.orderDateFilters{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:10px 0 18px;padding:12px;border-radius:12px;background:#f6f3fc}
+.orderDateFilters label{font-size:13px;flex:1 1 160px}
+.orderDateFilters input{margin:6px 0 0;min-width:0}
+.orderDateFilters button{margin-bottom:0}
+@media(max-width:600px){.orderDateFilters label{flex:1 1 100%}.orderDateFilters button{width:100%}}
 /* V14 · Visibilidad de pedidos pendientes, sin alterar el inventario */
 .pendingOrdersBadge{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 7px;border-radius:99px;background:#d63b68;color:#fff;font-size:12px;font-weight:900;margin-left:5px}
 .orderToolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:15px 0}
@@ -3369,7 +3380,7 @@ $('checkout').onclick = async () => {
   });
   const saved=await result.json();
   if (!result.ok || !saved.ok || saved.status!=='pending') throw Error(saved.error||'No se pudo registrar el pedido.');
-  const finalMessage=message+'\n\n📦 *NÚMERO DE PEDIDO:* '+reservationId;
+  const finalMessage=message+'\n\n📦 *NÚMERO DE PEDIDO:* '+reservationId.slice(0,8).toUpperCase();
   // Abrir WhatsApp después de registrar el pedido, sin descontar inventario.
   window.location.href='https://wa.me/56966282007?text='+encodeURIComponent(finalMessage);
   // Mantener el carrito hasta que el cliente decida modificarlo: abrir WhatsApp no garantiza el envío.
@@ -3466,6 +3477,17 @@ const ADMIN = String.raw`
    <h3>📦 Pedidos recibidos por WhatsApp</h3>
    <p class="muted">El pedido se registra sin descontar stock. Cuando recibas el mensaje por WhatsApp, confirma aquí para descontar inventario y registrar la venta. Los pedidos pendientes no vencen automáticamente.</p>
    <div class="orderToolbar"><div id="ordersSummary" class="ordersSummary" role="status" aria-live="polite">Consultando pedidos...</div><button type="button" id="refreshOrders">↻ Actualizar pedidos</button></div>
+   <div class="orderFilterBar" role="group" aria-label="Filtrar pedidos">
+    <button type="button" class="orderFilterButton active" data-order-filter="pending">🕒 Solicitudes de pedidos <span id="orderCountPending">0</span></button>
+    <button type="button" class="orderFilterButton" data-order-filter="cancelled">✕ Pedidos cancelados <span id="orderCountCancelled">0</span></button>
+    <button type="button" class="orderFilterButton" data-order-filter="confirmed">✓ Pedidos confirmados <span id="orderCountConfirmed">0</span></button>
+    <button type="button" class="orderFilterButton" data-order-filter="all">Todos <span id="orderCountAll">0</span></button>
+   </div>
+   <div class="orderDateFilters">
+    <label>📅 Desde <input type="date" id="ordersDateFrom" aria-label="Fecha inicial de pedidos"></label>
+    <label>📅 Hasta <input type="date" id="ordersDateTo" aria-label="Fecha final de pedidos"></label>
+    <button type="button" class="secondary" id="ordersClearDates">Limpiar fechas</button>
+   </div>
    <p id="ordersMessage"></p>
    <div id="ordersList"></div>
   </section>
@@ -4864,6 +4886,22 @@ $('salesPDF').onclick=()=>{
  w.document.write('<!doctype html><html lang="es"><meta charset="utf-8"><title>BRUSAAM Informe</title><style>body{font-family:Arial;padding:24px}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ccc;padding:7px;text-align:left}@media print{button{display:none}}</style><h1>BRUSAAM · Informe de ventas</h1><p>'+esc(r.from)+' a '+esc(r.to)+'</p><h2>Total: '+esc(salesMoney(r.total))+'</h2><p>Ventas: '+r.count+' · Unidades: '+r.units+'</p><table><tr><th>Fecha</th><th>Origen</th><th>Pago</th><th>Total</th></tr>'+rows+'</table><p>Solo ventas registradas y confirmadas.</p><button onclick="window.print()">Imprimir / Guardar como PDF</button></html>');w.document.close();w.focus();
 };
 
+// El identificador completo permanece como clave interna en D1; al cliente se le muestra el código corto.
+function orderShortCode(id){return String(id||'').slice(0,8).toUpperCase();}
+function orderChileDate(timestamp){
+ const parts=new Intl.DateTimeFormat('en-US',{timeZone:'America/Santiago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(Number(timestamp)));
+ const get=type=>parts.find(p=>p.type===type)?.value||'';
+ return get('year')+'-'+get('month')+'-'+get('day');
+}
+let activeOrderFilter='pending';
+$('ordersDateFrom').addEventListener('change',renderOrders);
+$('ordersDateTo').addEventListener('change',renderOrders);
+$('ordersClearDates').addEventListener('click',()=>{$('ordersDateFrom').value='';$('ordersDateTo').value='';renderOrders();});
+document.querySelectorAll('[data-order-filter]').forEach(button=>button.addEventListener('click',()=>{
+ activeOrderFilter=button.dataset.orderFilter;
+ document.querySelectorAll('[data-order-filter]').forEach(b=>b.classList.toggle('active',b===button));
+ renderOrders();
+}));
 async function renderOrders() {
  const root=$('ordersList'),message=$('ordersMessage'),badge=$('pendingOrdersBadge'),summary=$('ordersSummary');
  root.replaceChildren();message.textContent='';
@@ -4872,15 +4910,34 @@ async function renderOrders() {
   const orders=Array.isArray(result.orders)?result.orders:[];
   const pending=orders.filter(o=>o.status==='pending').length;
   badge.textContent=String(pending);badge.classList.toggle('hidden',pending===0);
-  summary.textContent=pending===0?'✓ No tienes pedidos pendientes':pending===1?'🔔 Tienes 1 pedido pendiente de revisión':'🔔 Tienes '+pending+' pedidos pendientes de revisión';
+  summary.textContent=(pending===0?'✓ No tienes pedidos pendientes':pending===1?'🔔 Tienes 1 pedido pendiente de revisión':'🔔 Tienes '+pending+' pedidos pendientes de revisión')+' · Orden de atención: del más antiguo al más reciente';
   document.title=pending?'('+pending+') BRUSAAM · Administración':'BRUSAAM · Administración';
+  $('orderCountPending').textContent=String(pending);
+  $('orderCountCancelled').textContent=String(orders.filter(o=>o.status==='cancelled'||o.status==='expired').length);
+  $('orderCountConfirmed').textContent=String(orders.filter(o=>o.status==='confirmed').length);
+  $('orderCountAll').textContent=String(orders.length);
   if(!orders.length){root.textContent='Todavía no hay pedidos registrados.';return;}
-  orders.sort((a,b)=>(a.status==='pending'?0:1)-(b.status==='pending'?0:1)||Number(b.created_at)-Number(a.created_at));
-  for(const order of orders){
+  const from=$('ordersDateFrom').value,to=$('ordersDateTo').value;
+  if(from&&to&&from>to){root.textContent='La fecha inicial no puede ser posterior a la final.';return;}
+  const visibleOrders=orders.filter(o=>{
+   const statusMatches=activeOrderFilter==='all'||(activeOrderFilter==='cancelled'?(o.status==='cancelled'||o.status==='expired'):o.status===activeOrderFilter);
+   const date=orderChileDate(o.created_at);
+   return statusMatches&&(!from||date>=from)&&(!to||date<=to);
+  }).sort((a,b)=>Number(a.created_at)-Number(b.created_at)||String(a.id).localeCompare(String(b.id)));
+  if(!visibleOrders.length){root.textContent='No hay pedidos que coincidan con el estado y las fechas seleccionadas.';return;}
+  // La numeración indica el orden de atención entre las solicitudes pendientes.
+  // Se calcula antes del filtro de fechas para que el número no cambie al filtrar.
+  const pendingQueue=[...orders].filter(o=>o.status==='pending').sort((a,b)=>Number(a.created_at)-Number(b.created_at)||String(a.id).localeCompare(String(b.id));
+  const queuePositions=new Map(pendingQueue.map((o,index)=>[o.id,index+1]));
+  for(const order of visibleOrders){
    const section=document.createElement('section');
    section.className='panel'+(order.status==='pending'?' orderPendingCard':'');
    const header=document.createElement('div');header.className='orderCardHeader';
-   const heading=document.createElement('h4');heading.textContent='Pedido #'+order.id.slice(0,8);
+   const heading=document.createElement('h4');
+   if(order.status==='pending'){
+    const position=queuePositions.get(order.id);
+    heading.textContent='Turno '+String(position).padStart(3,'0')+' · Pedido #'+orderShortCode(order.id);
+   }else heading.textContent='Pedido #'+orderShortCode(order.id);
    const status=document.createElement('span');status.className='orderStatusPill '+order.status;
    status.textContent=({pending:'⏳ PENDIENTE',confirmed:'✓ CONFIRMADO',cancelled:'✕ CANCELADO',expired:'VENCIDO'})[order.status]||order.status;
    header.append(heading,status);
