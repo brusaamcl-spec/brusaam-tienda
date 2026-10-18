@@ -232,7 +232,8 @@ async function initialize(env) {
     ["box_pyme", "INTEGER NOT NULL DEFAULT 0"],
     ["manga_price", "INTEGER NOT NULL DEFAULT 0"],
     ["packs_per_manga", "INTEGER NOT NULL DEFAULT 0"],
-    ["pack_eligible", "INTEGER NOT NULL DEFAULT 1"]
+    ["pack_eligible", "INTEGER NOT NULL DEFAULT 1"],
+    ["wholesale_group", "TEXT NOT NULL DEFAULT ''"]
   ];
 
   for (const [column, definition] of newColumns) {
@@ -916,6 +917,12 @@ footer{
  .banner strong{font-size:19px}
 }
 
+ .paymentMethod{border:1px solid #dfc9f4;border-radius:12px;background:#faf7ff;padding:12px 14px;margin:10px 0 16px;min-width:0}
+ .paymentMethod legend{font-weight:800;color:#583198;padding:0 5px}
+ .paymentOption{display:flex;align-items:center;gap:9px;padding:10px 6px;font-size:15px;cursor:pointer;line-height:1.4}
+ .paymentOption input[type=radio]{width:18px;height:18px;flex:0 0 18px;margin:0;accent-color:#6725C7}
+ @media(max-width:600px){.paymentOption{font-size:14px}}
+
 /* BRUSAAM - MEJORAS VISUALES */
 
 /* Logo más grande */
@@ -1325,7 +1332,7 @@ function brusaamHeroShow(index){
  dots.forEach((dot,i)=>dot.classList.toggle('active',i===brusaamHeroIndex));
 }
 function brusaamHeroMove(step){brusaamHeroShow(brusaamHeroIndex+step)}
-setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},5000);
+setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},3000);
 </script>
  <main>${content}</main>
 <footer>
@@ -1583,6 +1590,13 @@ const SHOP = String.raw`
    </label>
   </div>
 
+  <fieldset class="paymentMethod" aria-labelledby="paymentLegend">
+   <legend id="paymentLegend">💳 Método de Pago *</legend>
+   <label class="paymentOption"><input type="radio" name="paymentMethod" value="Efectivo"> 💵 Efectivo</label>
+   <label class="paymentOption"><input type="radio" name="paymentMethod" value="Transferencia"> 🏦 Transferencia</label>
+   <label class="paymentOption"><input type="radio" name="paymentMethod" value="Tarjeta Débito/Crédito"> 💳 Tarjeta Débito/Crédito</label>
+  </fieldset>
+
   <label>Observaciones del pedido (opcional)
    <textarea id="orderNotes" maxlength="450" rows="2"
     placeholder="Indicaciones para la entrega o comentarios"></textarea>
@@ -1749,14 +1763,18 @@ function brusaamWholesaleKey(product){
  if(!sizeMatch)return '';
  let size=sizeMatch[1].replace(',','.')+sizeMatch[2];
  const type=/\b(acond|acondicionador|balsamo)\b/.test(name)?'acondicionador':/\b(sh|shampoo|champu)\b/.test(name)?'shampoo':/\b(jabon|jabones)\b/.test(name)?'jabon':/\b(detergente)\b/.test(name)?'detergente':/\b(suavizante)\b/.test(name)?'suavizante':/\b(cloro\s*gel)\b/.test(name)?'cloro gel':/\b(lavaloza|lavalozas)\b/.test(name)?'lavalozas':/\b(limpiapiso|limpiapisos|limpia piso|limpia pisos)\b/.test(name)?'limpiapisos':/\b(desodorante|ambiental|aromatizante)\b/.test(name)?'ambiental':'otro';
- const brands=['head & shoulders','head and shoulders','h&s','pantene','sedal','poett','ballerina','suavelina','familand','elvive','lux','le sancy','dove','nivea','igenix','ais matic','ais','ro','quix','fuzol','jj','teddy','de osol','deosol','etiquet','bio','confort','elite','swan','abolengo'];
+ const brands=['rexona','head & shoulders','head and shoulders','h&s','pantene','sedal','poett','ballerina','suavelina','familand','elvive','lux','le sancy','dove','nivea','igenix','ais matic','ais','ro','quix','fuzol','jj','teddy','de osol','deosol','etiquet','bio','confort','elite','swan','abolengo'];
  const brand=brands.find(b=>(' '+name+' ').includes(' '+b+' '));
  // Si no conocemos la marca, exigimos la misma denominación base para evitar descuentos incorrectos.
  const tokens=name.replace(/[^a-z0-9&]+/g,' ').trim().split(/\s+/);
  const core=tokens.filter(t=>!brusaamAromas.has(t) && !/^(\d+(?:[.,]\d+)?(?:ml|cc|lt|lts|l|kg|gr|g|un|und|unidades|rollos|mts|mt))$/.test(t)).join(' ');
- const family=brand ? brand : core;
+ // Grupo independiente: permite nuevas marcas sin alterar Arma tu Pack.
+ const manualGroup=normalized(product.wholesale_group||'').trim();
+ const family=manualGroup ? 'manual:'+manualGroup : (brand ? brand : core);
  if(!family)return '';
- return [normalized(product.category),type,family,size,Number(product.retail),Number(product.wholesale),Number(product.min_qty)||2].join('|');
+ // Separar presentaciones para no mezclar spray, roll-on, barra, doypack o botella.
+ const presentation=/\b(spray|aerosol)\b/.test(name)?'spray':/\b(roll[ -]?on)\b/.test(name)?'roll-on':/\b(doypack|doy pack|bolsa|repuesto)\b/.test(name)?'doypack':/\b(botella|frasco)\b/.test(name)?'botella':/\b(barra)\b/.test(name)?'barra':'estandar';
+ return [normalized(product.category),type,family,presentation,size,Number(product.retail),Number(product.wholesale),Number(product.min_qty)||2].join('|');
 }
 function brusaamWholesaleCounts(allocation){
  const groups={};
@@ -2900,6 +2918,14 @@ $('checkout').onclick = () => {
   return;
  }
 
+ const paymentSelection = document.querySelector('input[name="paymentMethod"]:checked');
+ if (!paymentSelection) {
+  alert('Selecciona un método de pago.');
+  document.querySelector('.paymentMethod').scrollIntoView({behavior:'smooth',block:'center'});
+  return;
+ }
+ const paymentMethod = paymentSelection.value;
+
  const pickup = $('mode').value === 'pickup';
 
  const address = $('address').value.trim();
@@ -2979,6 +3005,9 @@ $('checkout').onclick = () => {
   '👤 *DATOS DEL SOLICITANTE*',
   '',
   'Nombre: ' + customer,
+  '',
+  '💳 *MÉTODO DE PAGO*',
+  paymentMethod,
   '',
   '📍 *DATOS DE ENTREGA*',
   '',
@@ -3121,6 +3150,11 @@ const ADMIN = String.raw`
      💜 Participa en Arma tu Pack
     </label>
     <p class="muted">Solo aplica si el producto también cumple las condiciones de marca y presentación del pack.</p>
+
+    <label>Grupo mayorista para combinar variedades (opcional)
+     <input id="pWholesaleGroup" type="text" maxlength="120" placeholder="Ej.: REXONA SPRAY MUJER 150ML">
+    </label>
+    <p class="muted">Escribe exactamente el mismo grupo en los aromas o variedades equivalentes. Se exige además misma categoría, tipo, presentación, tamaño, precio mayorista y mínimo. Esta configuración NO modifica Arma tu Pack.</p>
 
     <label>Precio al detalle
      <input id="pRetail" type="number"
@@ -3681,6 +3715,7 @@ function clearProduct() {
  $('pPacksPerManga').value = '0';
  $('pActive').checked = true;
  $('pPackEligible').checked = true;
+ $('pWholesaleGroup').value = '';
 
  fillProductSubs();
 }
@@ -3743,6 +3778,7 @@ function renderProducts() {
    $('pActive').checked =
     !!product.active;
    $('pPackEligible').checked = Number(product.pack_eligible) !== 0;
+   $('pWholesaleGroup').value = product.wholesale_group || '';
 
    openTab('products');
 
@@ -3808,6 +3844,7 @@ $('productForm').onsubmit = async event => {
  const product = {
   name: $('pName').value.trim(),
   pack_eligible: $('pPackEligible').checked,
+  wholesale_group: $('pWholesaleGroup').value.trim(),
   category: $('pCategory').value,
   subcategory: $('pSub').value,
   description: $('pDescription').value,
@@ -4402,6 +4439,7 @@ function validProduct(product) {
     product.subcategory.length > 100 ||
     typeof product.description !== "string" ||
     product.description.length > 1000 ||
+    (product.wholesale_group != null && (typeof product.wholesale_group !== "string" || product.wholesale_group.length > 120)) ||
     !validInteger(product.retail) ||
     !validInteger(product.wholesale) ||
     !validInteger(product.offer_price) ||
@@ -4905,11 +4943,11 @@ export default {
            min_qty,stock,image,active,
            destacados,pack_ahorro,
            ofertas,box_pyme,
-           manga_price,packs_per_manga,offer_price,offer_manga_price,nuevos_ingresos,special_only,pack_eligible
+           manga_price,packs_per_manga,offer_price,offer_manga_price,nuevos_ingresos,special_only,pack_eligible,wholesale_group
           )
           VALUES(
            ?,?,?,?,?,?,?,?,?,?,
-           ?,?,?,?,?,?,?,?,?,?,?
+           ?,?,?,?,?,?,?,?,?,?,?,?
           )
         `).bind(
           product.name.trim(),
@@ -4932,7 +4970,8 @@ export default {
           product.offer_manga_price || 0,
           product.nuevos_ingresos ? 1 : 0,
           product.special_only ? 1 : 0,
-          product.pack_eligible === false ? 0 : 1
+          product.pack_eligible === false ? 0 : 1,
+          (product.wholesale_group || "").trim()
         ).run();
 
         return reply({
@@ -4976,7 +5015,8 @@ export default {
            offer_manga_price=?,
            nuevos_ingresos=?,
            special_only=?,
-           pack_eligible=?
+           pack_eligible=?,
+           wholesale_group=?
           WHERE id=?
         `).bind(
           product.name.trim(),
@@ -5000,6 +5040,7 @@ export default {
           product.nuevos_ingresos ? 1 : 0,
           product.special_only ? 1 : 0,
           product.pack_eligible === false ? 0 : 1,
+          (product.wholesale_group || "").trim(),
           Number(productId[1])
         ).run();
 
