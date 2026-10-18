@@ -309,6 +309,7 @@ async function initialize(env) {
     try { await env.DB.prepare("ALTER TABLE shop_orders ADD COLUMN stock_reserved INTEGER NOT NULL DEFAULT 1").run(); }
     catch(e) { if(!String(e.message).includes('duplicate column')) throw e; }
   }
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS shop_bundle_components (bundle_id INTEGER NOT NULL, component_id INTEGER NOT NULL, quantity INTEGER NOT NULL CHECK(quantity>0), PRIMARY KEY(bundle_id,component_id))`).run();
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS shop_order_items (
       order_id TEXT NOT NULL,
@@ -459,8 +460,21 @@ async function getData(env, admin = false) {
     )
   );
 
+  const bundleRows=(await env.DB.prepare('SELECT bundle_id,component_id,quantity FROM shop_bundle_components').all()).results||[];
+  const catalog=products.results||[];
+  const allStock=(await env.DB.prepare('SELECT id,stock,active FROM products').all()).results||[];
+  const stockMap=new Map(allStock.map(p=>[Number(p.id),p]));
+  const bundleMap=new Map();
+  for(const r of bundleRows){if(!bundleMap.has(r.bundle_id))bundleMap.set(r.bundle_id,[]);bundleMap.get(r.bundle_id).push({id:r.component_id,quantity:r.quantity});}
+  for(const p of catalog){
+   p.components=bundleMap.get(p.id)||[];
+   if(p.components.length){
+    const availability=Math.min(...p.components.map(c=>{const part=stockMap.get(Number(c.id));return part&&Number(part.active)===1?Math.floor(Number(part.stock)/Number(c.quantity)):0;}));
+    p.stock=Math.max(0,Math.min(Number(p.stock),availability));
+   }
+  }
   return {
-    products: products.results || [],
+    products: catalog,
     categories: categories.results || [],
     subcategories: subcategories.results || [],
     sections: sections.results || [],
@@ -501,7 +515,7 @@ async function registerOrder(env, body) {
  if(!Array.isArray(body?.items)||!body.items.length||body.items.length>100)return reply({error:'Carrito vacío o demasiado grande.'},400);
  const quantities=new Map(),items=[];
  for(const line of body.items){
-  const pid=Number(line.id),qty=Number(line.quantity),kind=line.kind;
+  const pid=Number(line.id),qty=Number(line.quantity),kind=line.kind==='pack'?'unidad':line.kind;
   if(!Number.isSafeInteger(pid)||pid<=0||!Number.isSafeInteger(qty)||qty<=0||qty>10000||!['unidad','manga'].includes(kind))return reply({error:'Cantidad o presentación inválida.'},400);
   const key=pid+':'+kind;
   if(quantities.has(key))return reply({error:'Producto duplicado.'},400);
@@ -509,18 +523,39 @@ async function registerOrder(env, body) {
  }
  const ids=[...new Set([...quantities.keys()].map(k=>Number(k.split(':')[0])))];
  const found=await env.DB.prepare("SELECT id,name,stock,active,packs_per_manga FROM products WHERE id IN ("+ids.map(()=>'?').join(',')+")").bind(...ids).all();
- const products=new Map((found.results||[]).map(p=>[p.id,p])),required=new Map();
+ const products=new Map((found.results||[]).map(p=>[p.id,p])),required=new Map(),snapshots=new Map();
+ const componentRows=(await env.DB.prepare('SELECT bundle_id,component_id,quantity FROM shop_bundle_components WHERE bundle_id IN ('+ids.map(()=>'?').join(',')+')').bind(...ids).all()).results||[];
+ const components=new Map();for(const r of componentRows){if(!components.has(r.bundle_id))components.set(r.bundle_id,[]);components.get(r.bundle_id).push(r);}
+ const componentIds=[...new Set(componentRows.map(r=>r.component_id))];
+ if(componentIds.length){const rows=(await env.DB.prepare('SELECT id,name,stock,active FROM products WHERE id IN ('+componentIds.map(()=>'?').join(',')+')').bind(...componentIds).all()).results||[];for(const p of rows)products.set(p.id,p);}
  for(const [key,quantity] of quantities){
   const [idText,kind]=key.split(':'),pid=Number(idText),product=products.get(pid);
   if(!product||Number(product.active)!==1)return reply({error:'Producto no disponible; actualiza el catálogo.'},409);
-  const per=kind==='manga'?Number(product.packs_per_manga):1;
-  if(!Number.isSafeInteger(per)||per<=0||(kind==='manga'&&per<2))return reply({error:'Presentación inválida.'},409);
-  const units=quantity*per;
-  if(!Number.isSafeInteger(units))return reply({error:'Cantidad excesiva.'},400);
-  required.set(pid,(required.get(pid)||0)+units);
-  items.push({id:pid,kind,quantity,units,name:product.name});
+  const parts=components.get(pid)||[];
+  if(parts.length){
+   if(kind!=='unidad')return reply({error:'Los packs compuestos se venden por unidad.'},400);
+   if(quantity>Number(product.stock))return reply({error:'Se alcanzó el límite de packs disponibles.'},409);
+   for(const part of parts){
+    const item=products.get(part.component_id),units=quantity*Number(part.quantity);
+    if(!item||Number(item.active)!==1||!Number.isSafeInteger(units)||units<=0)return reply({error:'Un componente del pack no está disponible.'},409);
+    required.set(item.id,(required.get(item.id)||0)+units);
+    const snapshotKey=item.id+':unidad';
+    const snapshot=snapshots.get(snapshotKey)||{id:item.id,kind:'unidad',quantity:0,units:0,name:item.name};
+    snapshot.quantity+=units;snapshot.units+=units;snapshots.set(snapshotKey,snapshot);
+   }
+  }else{
+   const per=kind==='manga'?Number(product.packs_per_manga):1;
+   if(!Number.isSafeInteger(per)||per<=0||(kind==='manga'&&per<2))return reply({error:'Presentación inválida.'},409);
+   const units=quantity*per;
+   if(!Number.isSafeInteger(units))return reply({error:'Cantidad excesiva.'},400);
+   required.set(pid,(required.get(pid)||0)+units);
+   const snapshotKey=pid+':'+kind;
+   const snapshot=snapshots.get(snapshotKey)||{id:pid,kind,quantity:0,units:0,name:product.name};
+   snapshot.quantity+=quantity;snapshot.units+=units;snapshots.set(snapshotKey,snapshot);
+  }
  }
- for(const [pid,units] of required)if(Number(products.get(pid).stock)<units)return reply({error:'Stock insuficiente; actualiza el catálogo.'},409);
+ for(const [pid,units] of required)if(Number(products.get(pid).stock)<units)return reply({error:'Stock insuficiente en '+products.get(pid).name+'; revisa tu carrito.'},409);
+ items.push(...snapshots.values());
  const now=Date.now();
  const batch=[env.DB.prepare("INSERT INTO shop_orders(id,created_at,expires_at,status,customer,payment_method,delivery_method,address,region,commune,notes,stock_reserved) VALUES(?,?,0,'pending',?,?,?,?,?,?,?,0)").bind(id,now,customer,payment,delivery,address,region,commune,notes)];
  for(const item of items)batch.push(env.DB.prepare("INSERT INTO shop_order_items(order_id,product_id,kind,quantity,stock_units,product_name) VALUES(?,?,?,?,?,?)").bind(id,item.id,item.kind,item.quantity,item.units,item.name));
@@ -1054,6 +1089,11 @@ footer{
 .brusaamLogoHomeLink{display:block;width:max-content;max-width:100%;margin:0 auto;cursor:pointer;text-decoration:none;border-radius:12px}
 .brusaamLogoHomeLink:focus-visible{outline:3px solid #6725c7;outline-offset:5px}
 .brusaamLogoHomeLink .logo{cursor:pointer}
+.bundleEditor{border:1px solid #d9c7ef;border-radius:12px;padding:13px;margin:14px 0;background:#fbf8ff}
+.bundleEditor legend{font-weight:800;color:#583198}
+.bundleComponentRow{display:grid;grid-template-columns:minmax(0,1fr) 90px auto;gap:8px;align-items:center;margin:7px 0}
+.bundleComponentRow select,.bundleComponentRow input{margin:0}
+@media(max-width:600px){.bundleComponentRow{grid-template-columns:minmax(0,1fr) 72px auto}.bundleComponentRow button{padding:9px 6px}}
 /* V14 · Visibilidad de pedidos pendientes, sin alterar el inventario */
 .pendingOrdersBadge{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 7px;border-radius:99px;background:#d63b68;color:#fff;font-size:12px;font-weight:900;margin-left:5px}
 .orderToolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:15px 0}
@@ -2185,6 +2225,11 @@ function addToCart(id, kind, quantity) {
   return;
  }
 
+ if (!['pack','manga'].includes(kind)) {
+  alert('Presentación no válida.');
+  return;
+ }
+
  if (kind === 'manga' && !mangaAvailable(product)) {
   alert('Manga no disponible.');
   return;
@@ -2934,6 +2979,7 @@ function renderCart() {
   information.append(
    node('strong', product.name)
   );
+  if((product.components||[]).length&&product.description){const detail=node('div',product.description);detail.className='muted';information.append(detail);}
 
   const presentation =
    kind === 'manga'
@@ -3306,7 +3352,7 @@ $('checkout').onclick = async () => {
  try {
   const items=Object.entries(cart).map(([key,quantity])=>{
    const [id,kind]=key.split(':');
-   return {id:Number(id),kind,quantity};
+   return {id:Number(id),kind:kind==='pack'?'unidad':kind,quantity};
   });
   const result=await fetch('/api/orders/reserve',{
    method:'POST',headers:{'Content-Type':'application/json'},
@@ -3591,6 +3637,10 @@ const ADMIN = String.raw`
       Limpiar
      </button>
     </div>
+  <fieldset class="bundleEditor"><legend>📦 Componentes de promoción (solo Ofertas)</legend>
+   <p class="muted">Opcional. Si esta ficha está en Ofertas, puedes descontar otros productos al venderla.</p>
+   <div id="productComponents"></div><button type="button" class="secondary" id="addProductComponent">+ Añadir componente</button>
+  </fieldset>
    </form>
 
    <p id="productMessage"></p>
@@ -3609,19 +3659,23 @@ const ADMIN = String.raw`
    <div id="sectionList"></div>
   </section>
   <section class="panel">
-   <h3>Agregar producto independiente a una sección especial</h3>
-   <p class="notice">Crea productos independientes exclusivamente para Pack Ahorro y Box Pyme. No se vinculan mediante casillas en el catálogo normal.</p>
+   <h3>Crear o editar promoción / pack compuesto</h3>
+   <p class="notice">Crea promociones en Pack Ahorro, Ofertas y Box Pyme. Opcionalmente selecciona los productos del inventario que componen cada pack.</p>
    <form id="specialForm">
     <input type="hidden" id="specialId">
     <label>Sección especial <select id="specialSection" required></select></label>
     <label>Nombre del producto <input id="specialName" maxlength="160" required></label>
     <label>Descripción <textarea id="specialDescription" maxlength="1000"></textarea></label>
     <label>Precio único (CLP) <input id="specialPrice" type="number" min="0" required></label>
-    <label>Stock disponible <input id="specialStock" type="number" min="0" required></label>
+    <label>Stock máximo del pack (límite opcional, el stock real dependerá de los componentes) <input id="specialStock" type="number" min="0" required></label>
+    <fieldset class="bundleEditor"><legend>📦 Composición interna del pack (opcional)</legend>
+     <p class="muted">Selecciona productos existentes y cuántas unidades se descuentan por cada pack. Deja vacío para mantenerlo como producto normal.</p>
+     <div id="specialComponents"></div><button type="button" class="secondary" id="addSpecialComponent">+ Añadir componente</button>
+    </fieldset>
     <label>Fotografía <input id="specialFile" type="file" accept="image/png,image/jpeg,image/webp"></label>
     <button type="button" id="uploadSpecial">Subir fotografía</button>
     <label>URL de fotografía <input id="specialImage" type="url"></label>
-    <button type="submit">Guardar producto independiente</button>
+    <button type="submit">Guardar promoción</button>
     <button type="button" class="secondary" id="clearSpecial">Nuevo producto</button>
    </form>
    <h3>Productos independientes registrados</h3>
@@ -4044,6 +4098,24 @@ function adminRow(label, image, edit, remove) {
  return row;
 }
 
+function bundleOptions(selected){
+ return (data.products||[]).filter(p=>Number(p.special_only)!==1&&!(p.components||[]).length).map(p=>({id:Number(p.id),name:p.name})).filter(p=>String(p.id)!==String(selected));
+}
+function addBundleEditorRow(containerId,selectedId='',qty=1){
+ const root=$(containerId),row=document.createElement('div');row.className='bundleComponentRow';
+ const select=document.createElement('select');select.className='bundlePartId';
+ select.add(new Option('Seleccionar producto',''));
+ const current=containerId==='specialComponents'?$('specialId').value:$('pId').value;
+ for(const p of bundleOptions(current))select.add(new Option(p.name+' (#'+p.id+')',String(p.id)));
+ select.value=String(selectedId);
+ const input=document.createElement('input');input.type='number';input.min='1';input.max='10000';input.value=String(qty);input.className='bundlePartQty';input.title='Cantidad por pack';
+ const remove=document.createElement('button');remove.type='button';remove.className='danger small';remove.textContent='Quitar';remove.onclick=()=>row.remove();
+ row.append(select,input,remove);root.append(row);
+}
+function readBundleEditor(containerId){return [...$(containerId).querySelectorAll('.bundleComponentRow')].map(row=>({id:Number(row.querySelector('select').value),quantity:Number(row.querySelector('input').value)}));}
+function fillBundleEditor(containerId,product){$(containerId).replaceChildren();for(const p of product?.components||[])addBundleEditorRow(containerId,p.id,p.quantity);}
+$('addSpecialComponent').onclick=()=>addBundleEditorRow('specialComponents');
+$('addProductComponent').onclick=()=>addBundleEditorRow('productComponents');
 function clearProduct() {
  $('productForm').reset();
 
@@ -4058,6 +4130,7 @@ function clearProduct() {
  $('pActive').checked = true;
  $('pPackEligible').checked = true;
  $('pWholesaleGroup').value = '';
+ fillBundleEditor('productComponents',null);
 
  fillProductSubs();
 }
@@ -4121,6 +4194,7 @@ function renderProducts() {
     !!product.active;
    $('pPackEligible').checked = Number(product.pack_eligible) !== 0;
    $('pWholesaleGroup').value = product.wholesale_group || '';
+   fillBundleEditor('productComponents',product);
 
    openTab('products');
 
@@ -4216,12 +4290,16 @@ $('productForm').onsubmit = async event => {
  };
 
  try {
-  await api(
+  const result=await api(
    '/api/admin/products' +
     (id ? '/' + id : ''),
    id ? 'PUT' : 'POST',
    product
   );
+  if(product.ofertas||id){
+   const components=readBundleEditor('productComponents');
+   if(product.ofertas||components.length)await api('/api/admin/bundles/'+(id||result.id),'PUT',{components});
+  }
 
   clearProduct();
   await refresh();
@@ -4251,11 +4329,12 @@ $('clearSpecial').onclick = () => {
  $('specialForm').reset();
  $('specialId').value = '';
  $('specialImage').value = '';
+ fillBundleEditor('specialComponents',null);
 };
 $('specialForm').onsubmit = async event => {
  event.preventDefault();
  const slug = $('specialSection').value;
- if (!['pack_ahorro','box_pyme'].includes(slug)) {message('specialMessage','Selecciona Pack Ahorro o Box Pyme.');return;}
+ if (!['pack_ahorro','box_pyme','ofertas'].includes(slug)) {message('specialMessage','Selecciona Pack Ahorro, Ofertas o Box Pyme.');return;}
  const flags = {destacados:false,pack_ahorro:false,ofertas:false,box_pyme:false,nuevos_ingresos:false};
  flags[slug] = true;
  const price = Number($('specialPrice').value);
@@ -4268,9 +4347,10 @@ $('specialForm').onsubmit = async event => {
  };
  try {
   const id = $('specialId').value;
-  await api('/api/admin/products'+(id?'/'+id:''),id?'PUT':'POST',product);
+  const saved=await api('/api/admin/products'+(id?'/'+id:''),id?'PUT':'POST',product);
+  await api('/api/admin/bundles/'+(id||saved.id),'PUT',{components:readBundleEditor('specialComponents')});
   $('clearSpecial').click();
-  message('specialMessage','Producto independiente guardado correctamente.');
+  message('specialMessage','Promoción y componentes guardados correctamente.');
   await refresh();
  } catch(error) { message('specialMessage',error.message); }
 };
@@ -4278,7 +4358,7 @@ $('specialForm').onsubmit = async event => {
 function renderSections() {
  const sectionSelect = $('specialSection');
  sectionSelect.replaceChildren();
- for (const section of data.sections.filter(x=>['pack_ahorro','box_pyme'].includes(x.slug)))
+ for (const section of data.sections.filter(x=>['pack_ahorro','box_pyme','ofertas'].includes(x.slug)))
   sectionSelect.add(new Option(section.title,section.slug));
  const root = $('sectionList');
  root.replaceChildren();
@@ -4291,15 +4371,16 @@ function renderSections() {
  const specialRoot = $('specialProducts');
  specialRoot.replaceChildren();
  for (const product of data.products.filter(p =>
-  Number(p.special_only) === 1 && (Number(p.pack_ahorro)===1 || Number(p.box_pyme)===1))) {
+  Number(p.special_only) === 1 && (Number(p.pack_ahorro)===1 || Number(p.box_pyme)===1 || Number(p.ofertas)===1))) {
   const edit = () => {
    $('specialId').value = product.id;
-   $('specialSection').value = Number(product.pack_ahorro)===1 ? 'pack_ahorro':'box_pyme';
+   $('specialSection').value = Number(product.pack_ahorro)===1 ? 'pack_ahorro':Number(product.box_pyme)===1?'box_pyme':'ofertas';
    $('specialName').value = product.name || '';
    $('specialDescription').value = product.description || '';
    $('specialPrice').value = product.retail;
    $('specialStock').value = product.stock;
    $('specialImage').value = product.image || '';
+   fillBundleEditor('specialComponents',product);
    $('specialForm').scrollIntoView({behavior:'smooth'});
   };
   const remove = async () => {
@@ -5125,6 +5206,24 @@ async function uploadImage(request, env) {
   });
 }
 
+async function saveBundleComponents(env,bundleId,raw){
+ if(!Array.isArray(raw)||raw.length>40)return reply({error:'Selecciona hasta 40 productos para el pack.'},400);
+ const seen=new Set(),parts=[];
+ for(const r of raw){const id=Number(r.id),qty=Number(r.quantity);
+  if(!Number.isSafeInteger(id)||id<=0||id===bundleId||seen.has(id)||!Number.isSafeInteger(qty)||qty<1||qty>10000)return reply({error:'Revisa productos y cantidades del pack.'},400);
+  seen.add(id);parts.push({id,qty});
+ }
+ const product=await env.DB.prepare('SELECT id,pack_ahorro,ofertas,box_pyme FROM products WHERE id=?').bind(bundleId).first();
+ if(!product||(!product.pack_ahorro&&!product.ofertas&&!product.box_pyme))return reply({error:'Solo se permiten packs en Pack Ahorro, Ofertas y Box Pyme.'},400);
+ if(parts.length){
+  const found=(await env.DB.prepare('SELECT id FROM products WHERE id IN ('+parts.map(()=>'?').join(',')+')').bind(...parts.map(p=>p.id)).all()).results||[];
+  if(found.length!==parts.length)return reply({error:'Uno de los productos ya no existe.'},400);
+  const nested=(await env.DB.prepare('SELECT bundle_id FROM shop_bundle_components WHERE bundle_id IN ('+parts.map(()=>'?').join(',')+') LIMIT 1').bind(...parts.map(p=>p.id)).first());
+  if(nested)return reply({error:'No puedes incluir otro pack compuesto dentro de un pack.'},400);
+ }
+ const batch=[env.DB.prepare('DELETE FROM shop_bundle_components WHERE bundle_id=?').bind(bundleId),...parts.map(p=>env.DB.prepare('INSERT INTO shop_bundle_components(bundle_id,component_id,quantity) VALUES(?,?,?)').bind(bundleId,p.id,p.qty))];
+ await env.DB.batch(batch);return reply({ok:true});
+}
 /* V11: ventas confirmadas y presenciales. */
 function validSaleAmount(value){return Number.isSafeInteger(value)&&value>=0&&value<=1000000000;}
 async function confirmOrderSale(env,id,total) {
@@ -5157,14 +5256,27 @@ async function manualSale(env,body){
  if(!validSaleAmount(total)||!['Efectivo','Transferencia','Tarjeta Débito/Crédito'].includes(payment))return reply({error:'Monto o método de pago inválido.'},400);
  const input=body?.items||[];if(!Array.isArray(input)||input.length>30)return reply({error:'Detalle inválido.'},400);
  const items=[];const needed=new Map();
- for(const line of input){const id=Number(line.id),quantity=Number(line.quantity),price=Number(line.unit_price);if(!Number.isSafeInteger(id)||id<=0||!Number.isSafeInteger(quantity)||quantity<=0||!validSaleAmount(price))return reply({error:'Producto, cantidad o precio inválido.'},400);needed.set(id,(needed.get(id)||0)+quantity);items.push({id,quantity,price});}
+ for(const line of input){const id=Number(line.id),quantity=Number(line.quantity),price=Number(line.unit_price);if(!Number.isSafeInteger(id)||id<=0||!Number.isSafeInteger(quantity)||quantity<=0||!validSaleAmount(price))return reply({error:'Producto, cantidad o precio inválido.'},400);items.push({id,quantity,price});}
  if(items.length&&items.reduce((n,x)=>n+x.quantity*x.price,0)!==total)return reply({error:'El total debe coincidir con cantidad × precio unitario.'},400);
- const ids=[...needed.keys()],products=new Map();
+ const ids=items.map(x=>x.id),products=new Map();
  if(ids.length){const result=await env.DB.prepare('SELECT id,name,stock FROM products WHERE id IN ('+ids.map(()=>'?').join(',')+')').bind(...ids).all();for(const p of result.results||[])products.set(p.id,p);}
+ const componentRows=ids.length?(await env.DB.prepare('SELECT bundle_id,component_id,quantity FROM shop_bundle_components WHERE bundle_id IN ('+ids.map(()=>'?').join(',')+')').bind(...ids).all()).results||[]:[];
+ const componentMap=new Map();for(const row of componentRows){if(!componentMap.has(row.bundle_id))componentMap.set(row.bundle_id,[]);componentMap.get(row.bundle_id).push(row);}
+ const componentIds=[...new Set(componentRows.map(r=>r.component_id))];
+ if(componentIds.length){const result=await env.DB.prepare('SELECT id,name,stock FROM products WHERE id IN ('+componentIds.map(()=>'?').join(',')+')').bind(...componentIds).all();for(const p of result.results||[])products.set(p.id,p);}
+ const saleItems=[];
+ for(const item of items){
+  if(!products.has(item.id))return reply({error:'Producto no disponible.'},409);
+  const parts=componentMap.get(item.id)||[];
+  if(parts.length){
+   if(Number(products.get(item.id).stock)<item.quantity)return reply({error:'Límite de packs disponibles.'},409);
+   for(const part of parts){const units=item.quantity*Number(part.quantity);needed.set(part.component_id,(needed.get(part.component_id)||0)+units);saleItems.push({id:part.component_id,quantity:units,price:null});}
+  }else{needed.set(item.id,(needed.get(item.id)||0)+item.quantity);saleItems.push(item);}
+ }
  for(const [id,quantity] of needed){if(!products.has(id)||Number(products.get(id).stock)<quantity)return reply({error:'Stock insuficiente para la venta presencial.'},409);}
  const saleId=crypto.randomUUID(),now=Date.now(),batch=[env.DB.prepare("INSERT INTO shop_sales(id,order_id,created_at,source,customer,payment_method,total,notes) VALUES(?,NULL,?,'presencial',?,?,?,?)").bind(saleId,now,customer,payment,total,notes)];
  for(const [id,quantity] of needed){batch.push(env.DB.prepare('UPDATE products SET stock=stock-? WHERE id=? AND stock>=?').bind(quantity,id,quantity));batch.push(env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'));batch.push(env.DB.prepare('DELETE FROM shop_stock_guard'));}
- for(const item of items)batch.push(env.DB.prepare('INSERT INTO shop_sale_items(sale_id,product_id,product_name,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?)').bind(saleId,item.id,products.get(item.id).name,item.quantity,item.price,item.quantity*item.price));
+ for(const item of saleItems)batch.push(env.DB.prepare('INSERT INTO shop_sale_items(sale_id,product_id,product_name,quantity,unit_price,line_total) VALUES(?,?,?,?,?,?)').bind(saleId,item.id,products.get(item.id).name,item.quantity,item.price,item.price===null?null:item.quantity*item.price));
  try{await env.DB.batch(batch);return reply({ok:true,id:saleId});}catch(e){console.error('Error al registrar venta presencial',e);return reply({error:'No se pudo registrar la venta; verifica stock y reintenta.'},409);}
 }
 function chileDateParts(timestamp){
@@ -5481,6 +5593,12 @@ export default {
         return reply({ok:true});
       }
 
+      const bundleMatch=path.match(/^\/api\/admin\/bundles\/(\d+)$/);
+      if(bundleMatch&&method==='PUT'){
+       const body=await request.json().catch(()=>null);
+       return saveBundleComponents(env,Number(bundleMatch[1]),body?.components);
+      }
+
       /* PRODUCTOS */
 
       const productId = path.match(
@@ -5616,6 +5734,7 @@ export default {
         productId &&
         method === "DELETE"
       ) {
+        await env.DB.prepare('DELETE FROM shop_bundle_components WHERE bundle_id=? OR component_id=?').bind(Number(productId[1]),Number(productId[1])).run();
         await env.DB.prepare(`
           DELETE FROM products
           WHERE id=?
