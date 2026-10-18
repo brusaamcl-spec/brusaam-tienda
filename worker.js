@@ -1332,7 +1332,7 @@ function brusaamHeroShow(index){
  dots.forEach((dot,i)=>dot.classList.toggle('active',i===brusaamHeroIndex));
 }
 function brusaamHeroMove(step){brusaamHeroShow(brusaamHeroIndex+step)}
-setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},3000);
+setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},5000);
 </script>
  <main>${content}</main>
 <footer>
