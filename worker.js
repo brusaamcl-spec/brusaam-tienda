@@ -1051,6 +1051,9 @@ footer{
  @media(max-width:600px){.paymentOption{font-size:14px}}
 
 
+.brusaamLogoHomeLink{display:block;width:max-content;max-width:100%;margin:0 auto;cursor:pointer;text-decoration:none;border-radius:12px}
+.brusaamLogoHomeLink:focus-visible{outline:3px solid #6725c7;outline-offset:5px}
+.brusaamLogoHomeLink .logo{cursor:pointer}
 /* V14 · Visibilidad de pedidos pendientes, sin alterar el inventario */
 .pendingOrdersBadge{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 7px;border-radius:99px;background:#d63b68;color:#fff;font-size:12px;font-weight:900;margin-left:5px}
 .orderToolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:15px 0}
@@ -1522,9 +1525,11 @@ footer .contactInfo {
 <body>
 <header class="flowerHeader">
 ${floralHeader}
+<a id="brusaamLogoHomeLink" href="/" aria-label="Volver a la página principal de BRUSAAM" title="Volver al inicio" class="brusaamLogoHomeLink">
 <img id="shopLogo" class="logo"
- alt="Logo Brusaam" decoding="async"
+ alt="Logo Brusaam — volver al inicio" decoding="async"
  style="visibility:hidden;background:transparent">
+</a>
 <div class="slogan">Articulos de Limpieza y Cuidado Personal</div>
 <strong>Al POR MAYOR Y DETALLE</strong>
 ${admin ? "" : `
@@ -3125,6 +3130,10 @@ $('filterSub').onchange = () => {
  if (category) openCategory(category,$('filterSub').value);
  else renderProducts();
 };
+$('brusaamLogoHomeLink').addEventListener('click',event => {
+ event.preventDefault();
+ home();
+});
 $('backHome').onclick = () => {
  if ($('filterSub').value && $('filterCategory').value && !currentSection) {
   openCategory($('filterCategory').value);
