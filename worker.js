@@ -304,6 +304,11 @@ async function initialize(env) {
       notes TEXT NOT NULL DEFAULT ''
     )
   `).run();
+  const orderColumns = await env.DB.prepare("PRAGMA table_info(shop_orders)").all();
+  if (!(orderColumns.results || []).some(c => c.name === 'stock_reserved')) {
+    try { await env.DB.prepare("ALTER TABLE shop_orders ADD COLUMN stock_reserved INTEGER NOT NULL DEFAULT 1").run(); }
+    catch(e) { if(!String(e.message).includes('duplicate column')) throw e; }
+  }
   await env.DB.prepare(`
     CREATE TABLE IF NOT EXISTS shop_order_items (
       order_id TEXT NOT NULL,
@@ -467,81 +472,65 @@ async function getData(env, admin = false) {
 }
 
 /* RESERVAS V10: transacciones D1 y liberación de stock */
-async function releaseOrder(env, orderId, nextStatus, expiredOnly = false) {
-  const order = await env.DB.prepare('SELECT * FROM shop_orders WHERE id=?').bind(orderId).first();
-  if (!order || order.status !== 'pending') return false;
-  if (expiredOnly && Number(order.expires_at) > Date.now()) return false;
-  const items = (await env.DB.prepare('SELECT * FROM shop_order_items WHERE order_id=?').bind(orderId).all()).results || [];
-  const condition = expiredOnly ? ' AND expires_at<=?' : '';
-  const params = expiredOnly ? [nextStatus,orderId,Date.now()] : [nextStatus,orderId];
-  const statements = [env.DB.prepare('UPDATE shop_orders SET status=? WHERE id=? AND status=\'pending\''+condition).bind(...params),
-    env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'),
-    env.DB.prepare('DELETE FROM shop_stock_guard')];
-  for (const item of items) statements.push(env.DB.prepare('UPDATE products SET stock=stock+? WHERE id=?').bind(item.stock_units,item.product_id));
-  await env.DB.batch(statements);
-  return true;
-}
-async function expireOrders(env) {
-  const expired = (await env.DB.prepare('SELECT id FROM shop_orders WHERE status=\'pending\' AND expires_at<=? LIMIT 100').bind(Date.now()).all()).results || [];
-  for (const order of expired) {
-    try { await releaseOrder(env,order.id,'expired',true); } catch (e) { console.error('Error al liberar reserva',order.id,e); }
-  }
+async function releaseOrder(env, orderId, nextStatus) {
+ const order=await env.DB.prepare("SELECT * FROM shop_orders WHERE id=?").bind(orderId).first();
+ if(!order||order.status!=='pending')return false;
+ const items=(await env.DB.prepare("SELECT * FROM shop_order_items WHERE order_id=?").bind(orderId).all()).results||[];
+ const batch=[
+  env.DB.prepare("UPDATE shop_orders SET status=? WHERE id=? AND status='pending'").bind(nextStatus,orderId),
+  env.DB.prepare("INSERT INTO shop_stock_guard(value) SELECT changes()"),
+  env.DB.prepare("DELETE FROM shop_stock_guard")
+ ];
+ // Compatibilidad con pedidos de V12 anteriores: ya tenían stock reservado.
+ if(Number(order.stock_reserved)===1)
+  for(const item of items)batch.push(env.DB.prepare("UPDATE products SET stock=stock+? WHERE id=?").bind(item.stock_units,item.product_id));
+ try{await env.DB.batch(batch);return true;}catch(e){console.error('Error al cancelar pedido',e);return false;}
 }
 function cleanOrderText(value,max=250) {
  return typeof value === 'string' ? value.trim().slice(0,max) : '';
 }
-async function reserveOrder(env, body) {
-  const id = cleanOrderText(body?.id,80);
-  if (!/^[a-f0-9-]{36}$/i.test(id)) return reply({error:'Identificador de pedido inválido.'},400);
-  const existing = await env.DB.prepare('SELECT id,status,expires_at FROM shop_orders WHERE id=?').bind(id).first();
-  if (existing) return reply({ok:true,id,status:existing.status,expires_at:existing.expires_at});
-  const customer=cleanOrderText(body?.customer,160);
-  const payment=cleanOrderText(body?.payment_method,50);
-  const delivery=cleanOrderText(body?.delivery_method,50);
-  if (!customer || !['Efectivo','Transferencia','Tarjeta Débito/Crédito'].includes(payment) || !['pickup','delivery'].includes(delivery)) return reply({error:'Completa los datos del pedido y método de pago.'},400);
-  const address=cleanOrderText(body?.address),region=cleanOrderText(body?.region,100),commune=cleanOrderText(body?.commune,100),notes=cleanOrderText(body?.notes,1000);
-  if (delivery==='delivery' && (!address || !commune)) return reply({error:'Completa la dirección y comuna.'},400);
-  if (!Array.isArray(body?.items) || !body.items.length || body.items.length>100) return reply({error:'Carrito vacío o demasiado grande.'},400);
-  const items=[];
-  const quantities=new Map();
-  for (const line of body.items) {
-    const pid=Number(line.id),qty=Number(line.quantity),kind=line.kind;
-    if (!Number.isSafeInteger(pid)||pid<=0||!Number.isSafeInteger(qty)||qty<=0||qty>10000||!['unidad','manga'].includes(kind)) return reply({error:'Cantidad o presentación inválida.'},400);
-    const key=pid+':'+kind;
-    if (quantities.has(key)) return reply({error:'Producto duplicado en el pedido.'},400);
-    quantities.set(key,qty);
-  }
-  const ids=[...new Set([...quantities.keys()].map(k=>Number(k.split(':')[0])))];
-  const found=await env.DB.prepare('SELECT id,name,stock,active,packs_per_manga FROM products WHERE id IN ('+ids.map(()=>'?').join(',')+')').bind(...ids).all();
-  const products=new Map((found.results||[]).map(p=>[p.id,p]));
-  const required=new Map();
-  for (const [key,quantity] of quantities) {
-    const [idText,kind]=key.split(':'),id=Number(idText),product=products.get(id);
-    if (!product || Number(product.active)!==1) return reply({error:'Uno de los productos ya no está disponible. Actualiza el catálogo.'},409);
-    const per=kind==='manga'?Number(product.packs_per_manga):1;
-    if (!Number.isSafeInteger(per)||per<=0 || (kind==='manga' && per<2)) return reply({error:'Presentación de manga no disponible.'},409);
-    const units=quantity*per;
-    if (!Number.isSafeInteger(units)) return reply({error:'Cantidad excesiva.'},400);
-    required.set(id,(required.get(id)||0)+units);
-    items.push({id,kind,quantity,units,name:product.name});
-  }
-  for (const [id,units] of required) if (Number(products.get(id).stock)<units) return reply({error:'Stock insuficiente. Actualiza el catálogo antes de enviar.'},409);
-  const now=Date.now(),expires=now+24*60*60*1000;
-  const statements=[env.DB.prepare('INSERT INTO shop_orders(id,created_at,expires_at,status,customer,payment_method,delivery_method,address,region,commune,notes) VALUES(?,?,?,\'pending\',?,?,?,?,?,?,?)').bind(id,now,expires,customer,payment,delivery,address,region,commune,notes)];
-  for (const [pid,units] of required) {
-    statements.push(env.DB.prepare('UPDATE products SET stock=stock-? WHERE id=? AND active=1 AND stock>=?').bind(units,pid,units));
-    statements.push(env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'));
-    statements.push(env.DB.prepare('DELETE FROM shop_stock_guard'));
-  }
-  for (const item of items) statements.push(env.DB.prepare('INSERT INTO shop_order_items(order_id,product_id,kind,quantity,stock_units,product_name) VALUES(?,?,?,?,?,?)').bind(id,item.id,item.kind,item.quantity,item.units,item.name));
-  try { await env.DB.batch(statements); }
-  catch(error) {
-    const duplicate=await env.DB.prepare('SELECT id,status,expires_at FROM shop_orders WHERE id=?').bind(id).first();
-    if (duplicate) return reply({ok:true,id,status:duplicate.status,expires_at:duplicate.expires_at});
-    console.error('Reserva rechazada',error);
-    return reply({error:'No se pudo reservar el stock. Es posible que otro cliente haya comprado las últimas unidades. Actualiza el catálogo.'},409);
-  }
-  return reply({ok:true,id,status:'pending',expires_at:expires});
+async function registerOrder(env, body) {
+ const id=cleanOrderText(body?.id,80);
+ if(!/^[a-f0-9-]{36}$/i.test(id))return reply({error:'Identificador de pedido inválido.'},400);
+ const existing=await env.DB.prepare("SELECT id,status FROM shop_orders WHERE id=?").bind(id).first();
+ if(existing)return reply({ok:true,id,status:existing.status});
+ const customer=cleanOrderText(body?.customer,160),payment=cleanOrderText(body?.payment_method,50),delivery=cleanOrderText(body?.delivery_method,50);
+ if(!customer||!['Efectivo','Transferencia','Tarjeta Débito/Crédito'].includes(payment)||!['pickup','delivery'].includes(delivery))return reply({error:'Completa los datos del pedido.'},400);
+ const address=cleanOrderText(body?.address),region=cleanOrderText(body?.region,100),commune=cleanOrderText(body?.commune,100),notes=cleanOrderText(body?.notes,1000);
+ if(delivery==='delivery'&&(!address||!commune))return reply({error:'Completa dirección y comuna.'},400);
+ if(!Array.isArray(body?.items)||!body.items.length||body.items.length>100)return reply({error:'Carrito vacío o demasiado grande.'},400);
+ const quantities=new Map(),items=[];
+ for(const line of body.items){
+  const pid=Number(line.id),qty=Number(line.quantity),kind=line.kind;
+  if(!Number.isSafeInteger(pid)||pid<=0||!Number.isSafeInteger(qty)||qty<=0||qty>10000||!['unidad','manga'].includes(kind))return reply({error:'Cantidad o presentación inválida.'},400);
+  const key=pid+':'+kind;
+  if(quantities.has(key))return reply({error:'Producto duplicado.'},400);
+  quantities.set(key,qty);
+ }
+ const ids=[...new Set([...quantities.keys()].map(k=>Number(k.split(':')[0])))];
+ const found=await env.DB.prepare("SELECT id,name,stock,active,packs_per_manga FROM products WHERE id IN ("+ids.map(()=>'?').join(',')+")").bind(...ids).all();
+ const products=new Map((found.results||[]).map(p=>[p.id,p])),required=new Map();
+ for(const [key,quantity] of quantities){
+  const [idText,kind]=key.split(':'),pid=Number(idText),product=products.get(pid);
+  if(!product||Number(product.active)!==1)return reply({error:'Producto no disponible; actualiza el catálogo.'},409);
+  const per=kind==='manga'?Number(product.packs_per_manga):1;
+  if(!Number.isSafeInteger(per)||per<=0||(kind==='manga'&&per<2))return reply({error:'Presentación inválida.'},409);
+  const units=quantity*per;
+  if(!Number.isSafeInteger(units))return reply({error:'Cantidad excesiva.'},400);
+  required.set(pid,(required.get(pid)||0)+units);
+  items.push({id:pid,kind,quantity,units,name:product.name});
+ }
+ for(const [pid,units] of required)if(Number(products.get(pid).stock)<units)return reply({error:'Stock insuficiente; actualiza el catálogo.'},409);
+ const now=Date.now();
+ const batch=[env.DB.prepare("INSERT INTO shop_orders(id,created_at,expires_at,status,customer,payment_method,delivery_method,address,region,commune,notes,stock_reserved) VALUES(?,?,0,'pending',?,?,?,?,?,?,?,0)").bind(id,now,customer,payment,delivery,address,region,commune,notes)];
+ for(const item of items)batch.push(env.DB.prepare("INSERT INTO shop_order_items(order_id,product_id,kind,quantity,stock_units,product_name) VALUES(?,?,?,?,?,?)").bind(id,item.id,item.kind,item.quantity,item.units,item.name));
+ try{await env.DB.batch(batch);}catch(e){
+  const duplicate=await env.DB.prepare("SELECT id,status FROM shop_orders WHERE id=?").bind(id).first();
+  if(duplicate)return reply({ok:true,id,status:duplicate.status});
+  console.error('Error registrando pedido',e);
+  return reply({error:'No se pudo registrar el pedido.'},409);
+ }
+ return reply({ok:true,id,status:'pending'});
 }
 
 /* ILUSTRACIONES FLORALES */
@@ -1060,6 +1049,26 @@ footer{
  .paymentOption{display:flex;align-items:center;gap:9px;padding:10px 6px;font-size:15px;cursor:pointer;line-height:1.4}
  .paymentOption input[type=radio]{width:18px;height:18px;flex:0 0 18px;margin:0;accent-color:#6725C7}
  @media(max-width:600px){.paymentOption{font-size:14px}}
+
+
+/* V14 · Visibilidad de pedidos pendientes, sin alterar el inventario */
+.pendingOrdersBadge{display:inline-flex;align-items:center;justify-content:center;min-width:23px;height:23px;padding:0 7px;border-radius:99px;background:#d63b68;color:#fff;font-size:12px;font-weight:900;margin-left:5px}
+.orderToolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin:15px 0}
+.ordersSummary{font-size:15px;font-weight:800;color:#193c78;background:#eef5ff;padding:12px 15px;border-radius:12px;border:1px solid #dbe7fa}
+.orderPendingCard{border:2px solid #c0a0ee!important;background:linear-gradient(130deg,#fff,#faf5ff)!important;box-shadow:0 5px 18px #6630b91b!important}
+.orderCardHeader{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.orderCardHeader h4{margin:0;font-size:17px}
+.orderStatusPill{border-radius:99px;padding:6px 11px;font-size:12px;font-weight:900}
+.orderStatusPill.pending{color:#8a3a00;background:#fff0ce}
+.orderStatusPill.confirmed{color:#136d45;background:#dff6e9}
+.orderStatusPill.cancelled,.orderStatusPill.expired{color:#8a354c;background:#fbe6ec}
+.orderProductList{margin:10px 0;padding:10px 12px;background:#f6f8fe;border-radius:10px}
+.orderProductList p{margin:5px 0;font-size:13px}
+.orderActions{display:flex;flex-wrap:wrap;gap:10px;margin-top:13px}
+.orderActions button{flex:1 1 170px}
+.orderActions button.orderReject{background:#fff0f3;color:#9c2851;border:1px solid #e5b9c9}
+.orderStockNotice{font-size:12px;color:#62468b;font-weight:700}
+@media(max-width:600px){.ordersSummary{width:100%}.orderToolbar button{width:100%}}
 
 /* BRUSAAM - MEJORAS VISUALES */
 
@@ -3301,14 +3310,14 @@ $('checkout').onclick = async () => {
     region,commune:pan?$('panAzucarSector').value.trim():commune,notes})
   });
   const saved=await result.json();
-  if (!result.ok || !saved.ok || saved.status!=='pending') throw Error(saved.error||'No se pudo reservar el pedido.');
-  const finalMessage=message+'\n\n📦 *NÚMERO DE RESERVA:* '+reservationId;
-  // Abrir WhatsApp sólo cuando la reserva quedó registrada en D1.
+  if (!result.ok || !saved.ok || saved.status!=='pending') throw Error(saved.error||'No se pudo registrar el pedido.');
+  const finalMessage=message+'\n\n📦 *NÚMERO DE PEDIDO:* '+reservationId;
+  // Abrir WhatsApp después de registrar el pedido, sin descontar inventario.
   window.location.href='https://wa.me/56966282007?text='+encodeURIComponent(finalMessage);
-  // El pedido ya está reservado; vaciar carrito para evitar otro pedido accidental.
+  // Pedido registrado; vaciar carrito para evitar duplicados accidentales.
   cart={};saveBrusaamCart();
  } catch(error) {
-  alert(error.message+' No se descontó stock si la reserva fue rechazada.');
+  alert(error.message+' No se descontó stock.');
  } finally {button.disabled=false;}
 
 };
@@ -3375,7 +3384,7 @@ const ADMIN = String.raw`
   <button data-tab="products" class="active">
    Productos
   </button>
-  <button data-tab="orders">Pedidos y reservas</button>
+  <button data-tab="orders" id="ordersTabButton">📦 Pedidos <span id="pendingOrdersBadge" class="pendingOrdersBadge hidden" aria-label="Pedidos pendientes">0</span></button>
   <button data-tab="sales">📊 Informes de ventas</button>
   <button data-tab="packs">
    Arma tu Pack
@@ -3396,9 +3405,9 @@ const ADMIN = String.raw`
 
  <div id="tab-orders" class="hidden">
   <section class="panel">
-   <h3>📦 Pedidos y reservas de stock</h3>
-   <p class="muted">Las reservas pendientes duran 24 horas. Confirma el pedido antes del vencimiento o cancélalo para devolver el stock. El vencimiento se procesa al consultar la tienda y mediante un disparador programado.</p>
-   <button type="button" id="refreshOrders">Actualizar pedidos</button>
+   <h3>📦 Pedidos recibidos por WhatsApp</h3>
+   <p class="muted">El pedido se registra sin descontar stock. Cuando recibas el mensaje por WhatsApp, confirma aquí para descontar inventario y registrar la venta. Los pedidos pendientes no vencen automáticamente.</p>
+   <div class="orderToolbar"><div id="ordersSummary" class="ordersSummary" role="status" aria-live="polite">Consultando pedidos...</div><button type="button" id="refreshOrders">↻ Actualizar pedidos</button></div>
    <p id="ordersMessage"></p>
    <div id="ordersList"></div>
   </section>
@@ -3406,7 +3415,7 @@ const ADMIN = String.raw`
  <div id="tab-sales" class="hidden">
   <section class="panel">
    <h3>📊 Informes de ventas BRUSAAM</h3>
-   <p class="muted">Solo se contabilizan ventas confirmadas y ventas presenciales registradas. Las reservas pendientes no son ventas. Horario de Chile.</p>
+   <p class="muted">Solo se contabilizan ventas confirmadas y ventas presenciales registradas. Los pedidos pendientes no son ventas. Horario de Chile.</p>
    <div class="flex">
     <label>Período <select id="salesPeriod"><option value="day">Diario</option><option value="week">Semanal</option><option value="month">Mensual</option></select></label>
     <label>Fecha de referencia <input type="date" id="salesDate"></label>
@@ -4741,50 +4750,62 @@ $('salesPDF').onclick=()=>{
 };
 
 async function renderOrders() {
- const root=$('ordersList');
- root.replaceChildren();
+ const root=$('ordersList'),message=$('ordersMessage'),badge=$('pendingOrdersBadge'),summary=$('ordersSummary');
+ root.replaceChildren();message.textContent='';
  try {
   const result=await api('/api/admin/orders');
-  if (!result.orders.length) {root.textContent='Todavía no hay pedidos registrados.';return;}
-  for (const order of result.orders) {
-   const section=document.createElement('section');section.className='panel';
-   const heading=document.createElement('h4');
-   heading.textContent='Pedido '+order.id.slice(0,8)+' · '+order.status.toUpperCase();
-   const details=document.createElement('p');
-   details.style.whiteSpace='pre-line';
-   details.textContent='Cliente: '+order.customer+'\nPago: '+order.payment_method+'\nEntrega: '+order.delivery_method+'\nDirección: '+order.address+' '+order.commune+' '+order.region+'\nFecha: '+new Date(order.created_at).toLocaleString('es-CL')+'\nVence: '+new Date(order.expires_at).toLocaleString('es-CL')+'\nObservaciones: '+order.notes;
-   section.append(heading,details);
-   for (const item of result.items.filter(i=>i.order_id===order.id)) {
-    const p=document.createElement('p');
-    p.textContent=item.product_name+' · '+item.quantity+' '+item.kind+'(s) · '+item.stock_units+' unidades reservadas';
-    section.append(p);
+  const orders=Array.isArray(result.orders)?result.orders:[];
+  const pending=orders.filter(o=>o.status==='pending').length;
+  badge.textContent=String(pending);badge.classList.toggle('hidden',pending===0);
+  summary.textContent=pending===0?'✓ No tienes pedidos pendientes':pending===1?'🔔 Tienes 1 pedido pendiente de revisión':'🔔 Tienes '+pending+' pedidos pendientes de revisión';
+  document.title=pending?'('+pending+') BRUSAAM · Administración':'BRUSAAM · Administración';
+  if(!orders.length){root.textContent='Todavía no hay pedidos registrados.';return;}
+  orders.sort((a,b)=>(a.status==='pending'?0:1)-(b.status==='pending'?0:1)||Number(b.created_at)-Number(a.created_at));
+  for(const order of orders){
+   const section=document.createElement('section');
+   section.className='panel'+(order.status==='pending'?' orderPendingCard':'');
+   const header=document.createElement('div');header.className='orderCardHeader';
+   const heading=document.createElement('h4');heading.textContent='Pedido #'+order.id.slice(0,8);
+   const status=document.createElement('span');status.className='orderStatusPill '+order.status;
+   status.textContent=({pending:'⏳ PENDIENTE',confirmed:'✓ CONFIRMADO',cancelled:'✕ CANCELADO',expired:'VENCIDO'})[order.status]||order.status;
+   header.append(heading,status);
+   const details=document.createElement('p');details.style.whiteSpace='pre-line';
+   details.textContent='👤 Cliente: '+order.customer+'\n💳 Pago: '+order.payment_method+'\n🚚 Entrega: '+(order.delivery_method==='pickup'?'Retiro':'Despacho')+'\n📍 Dirección: '+[order.address,order.commune,order.region].filter(Boolean).join(', ')+'\n📅 Fecha: '+new Date(order.created_at).toLocaleString('es-CL',{timeZone:'America/Santiago'})+(order.notes?'\n📝 Observaciones: '+order.notes:'');
+   const itemsBox=document.createElement('div');itemsBox.className='orderProductList';
+   const itemsTitle=document.createElement('strong');itemsTitle.textContent='🛒 Productos solicitados';itemsBox.append(itemsTitle);
+   for(const item of (result.items||[]).filter(i=>i.order_id===order.id)){
+    const line=document.createElement('p');line.textContent=item.product_name+' · '+item.quantity+' '+item.kind+'(s) · '+item.stock_units+' unidades';itemsBox.append(line);
    }
-   if(order.status==='pending') {
-    for (const [action,label] of [['confirm','Confirmar pedido'],['cancel','Cancelar y devolver stock']]) {
+   section.append(header,details,itemsBox);
+   if(order.status==='pending'){
+    const note=document.createElement('p');note.className='orderStockNotice';note.textContent='Sin descuento de stock. Verifica primero que recibiste el mensaje por WhatsApp.';section.append(note);
+    const actions=document.createElement('div');actions.className='orderActions';
+    for(const [action,label] of [['confirm','✓ Confirmar y descontar stock'],['cancel','✕ Rechazar pedido']]){
      const btn=document.createElement('button');btn.type='button';btn.textContent=label;
+     if(action==='cancel')btn.className='orderReject';
      btn.onclick=async()=>{
-      if (!confirm(label+'?'))return;
-      btn.disabled=true;
-      try {
-       let payload={};
-       if(action==='confirm') {
-        const entered=prompt('Total REAL cobrado por este pedido ($ CLP). Ingresa el monto final, incluidos descuentos y despacho:', '');
-        if(entered===null){btn.disabled=false;return;}
-        if(!/^\d+$/.test(entered.trim())) throw Error('Ingresa un monto válido, sin puntos ni símbolos.');
-        payload={total:Number(entered)};
-       }
+      let payload={};
+      if(action==='confirm'){
+       if(!confirm('¿Ya recibiste este pedido en WhatsApp? Al confirmar se descontará el stock disponible.'))return;
+       const entered=prompt('Total REAL cobrado ($ CLP), incluidos descuentos y despacho. Escribe solo números:','');
+       if(entered===null)return;
+       if(!/^\\d+$/.test(entered.trim())){alert('Ingresa un monto válido, sin puntos ni símbolos.');return;}
+       payload={total:Number(entered)};
+      }else if(!confirm('¿Rechazar este pedido? No se descontará stock de pedidos nuevos.'))return;
+      for(const b of actions.querySelectorAll('button'))b.disabled=true;
+      try{
        await api('/api/admin/orders/'+order.id+'/'+action,'POST',payload);
        await refresh();
-       if(action==='confirm') renderSales();
-      }
-      catch(e){alert(e.message);btn.disabled=false;}
+       if(action==='confirm')await renderSales();
+      }catch(e){alert(e.message);for(const b of actions.querySelectorAll('button'))b.disabled=false;}
      };
-     section.append(btn);
+     actions.append(btn);
     }
+    section.append(actions);
    }
    root.append(section);
   }
- } catch(e) {$('ordersMessage').textContent=e.message;}
+ }catch(e){message.textContent=e.message;summary.textContent='No fue posible consultar los pedidos.';}
 }
 $('refreshOrders').onclick=renderOrders;
 
@@ -5102,13 +5123,28 @@ async function uploadImage(request, env) {
 function validSaleAmount(value){return Number.isSafeInteger(value)&&value>=0&&value<=1000000000;}
 async function confirmOrderSale(env,id,total) {
  if(!validSaleAmount(total))return reply({error:'Indica el total cobrado en pesos chilenos.'},400);
- const order=await env.DB.prepare('SELECT * FROM shop_orders WHERE id=?').bind(id).first();
- if(!order||order.status!=='pending'||order.expires_at<=Date.now())return reply({error:'La reserva ya no está pendiente o venció.'},409);
- const items=(await env.DB.prepare('SELECT * FROM shop_order_items WHERE order_id=?').bind(id).all()).results||[];
+ const order=await env.DB.prepare("SELECT * FROM shop_orders WHERE id=?").bind(id).first();
+ if(!order||order.status!=='pending')return reply({error:'El pedido ya no está pendiente.'},409);
+ const items=(await env.DB.prepare("SELECT * FROM shop_order_items WHERE order_id=?").bind(id).all()).results||[];
+ const needed=new Map();
+ for(const item of items)needed.set(item.product_id,(needed.get(item.product_id)||0)+Number(item.stock_units));
  const saleId=crypto.randomUUID(),now=Date.now();
- const batch=[env.DB.prepare("UPDATE shop_orders SET status='confirmed' WHERE id=? AND status='pending' AND expires_at>?").bind(id,now),env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'),env.DB.prepare('DELETE FROM shop_stock_guard'),env.DB.prepare("INSERT INTO shop_sales(id,order_id,created_at,source,customer,payment_method,total,notes) VALUES(?,?,?,'online',?,?,?,?)").bind(saleId,id,now,order.customer,order.payment_method,total,order.notes)];
- for(const item of items)batch.push(env.DB.prepare('INSERT INTO shop_sale_items(sale_id,product_id,product_name,quantity,unit_price,line_total) VALUES(?,?,?,?,NULL,NULL)').bind(saleId,item.product_id,item.product_name,item.stock_units));
- try{await env.DB.batch(batch);return reply({ok:true,sale_id:saleId});}catch(e){console.error('Error al confirmar venta',e);return reply({error:'No se pudo confirmar la venta. Revisa el estado del pedido.'},409);}
+ const batch=[
+  env.DB.prepare("UPDATE shop_orders SET status='confirmed',stock_reserved=0 WHERE id=? AND status='pending'").bind(id),
+  env.DB.prepare("INSERT INTO shop_stock_guard(value) SELECT changes()"),
+  env.DB.prepare("DELETE FROM shop_stock_guard"),
+  env.DB.prepare("INSERT INTO shop_sales(id,order_id,created_at,source,customer,payment_method,total,notes) VALUES(?,?,?,'online',?,?,?,?)").bind(saleId,id,now,order.customer,order.payment_method,total,order.notes)
+ ];
+ // Los pedidos anteriores a V13 ya descontaron el inventario al registrarse.
+ if(Number(order.stock_reserved)!==1)
+  for(const [pid,units] of needed){
+   batch.push(env.DB.prepare("UPDATE products SET stock=stock-? WHERE id=? AND active=1 AND stock>=?").bind(units,pid,units));
+   batch.push(env.DB.prepare("INSERT INTO shop_stock_guard(value) SELECT changes()"));
+   batch.push(env.DB.prepare("DELETE FROM shop_stock_guard"));
+  }
+ for(const item of items)batch.push(env.DB.prepare("INSERT INTO shop_sale_items(sale_id,product_id,product_name,quantity,unit_price,line_total) VALUES(?,?,?,?,NULL,NULL)").bind(saleId,item.product_id,item.product_name,item.stock_units));
+ try{await env.DB.batch(batch);return reply({ok:true,sale_id:saleId});}
+ catch(e){console.error('Error al confirmar venta',e);return reply({error:'No se pudo confirmar: revisa el stock disponible y el estado del pedido.'},409);}
 }
 async function manualSale(env,body){
  const total=Number(body?.total),payment=cleanOrderText(body?.payment_method,50),customer=cleanOrderText(body?.customer,160),notes=cleanOrderText(body?.notes,500);
@@ -5150,7 +5186,7 @@ async function salesReport(env,url){
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil((async()=>{await initialize(env);await expireOrders(env);})());
+    ctx.waitUntil(initialize(env));
   },
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -5184,7 +5220,6 @@ export default {
         method === "GET"
       ) {
         await initialize(env);
-        await expireOrders(env);
 
         return reply(
           await getData(env)
@@ -5205,9 +5240,8 @@ export default {
       if (path === '/api/orders/reserve' && method === 'POST') {
         if (!checkOrigin(request)) return reply({error:'Origen no permitido'},403);
         await initialize(env);
-        await expireOrders(env);
         const body=await request.json().catch(()=>null);
-        return reserveOrder(env,body);
+        return registerOrder(env,body);
       }
 
       if (!path.startsWith("/api/admin/")) {
@@ -5389,9 +5423,8 @@ export default {
 
       await initialize(env);
 
-      /* RESERVAS Y PEDIDOS V10 */
+      /* PEDIDOS V13: descuento únicamente al confirmar */
       if (path === '/api/admin/orders' && method === 'GET') {
-        await expireOrders(env);
         const orders=(await env.DB.prepare('SELECT * FROM shop_orders ORDER BY created_at DESC LIMIT 250').all()).results || [];
         const items=(await env.DB.prepare('SELECT * FROM shop_order_items WHERE order_id IN (SELECT id FROM shop_orders ORDER BY created_at DESC LIMIT 250)').all()).results || [];
         return reply({orders,items});
