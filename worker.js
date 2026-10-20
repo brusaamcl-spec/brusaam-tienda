@@ -1600,11 +1600,16 @@ footer .contactInfo {
 @media(max-width:600px){.brusaamTopGallery .brusaamPromoPhoto{max-height:230px!important}.brusaamPackCornerBadge{font-size:9px;max-width:65px}}
 
 /* BRUSAAM V30: etiqueta de oferta en esquina y vista inicial de 2 productos en móvil */
-.brusaamOfferCorner{position:absolute;top:8px;left:7px;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-width:58px;min-height:55px;padding:8px 6px;background:#d9222e;color:#fff;clip-path:polygon(50% 0%,61% 10%,75% 3%,82% 17%,97% 18%,94% 34%,100% 50%,94% 65%,97% 82%,82% 83%,75% 97%,61% 90%,50% 100%,39% 90%,25% 97%,18% 83%,3% 82%,6% 65%,0% 50%,6% 34%,3% 18%,18% 17%,25% 3%,39% 10%);filter:drop-shadow(0 2px 3px #0003);text-align:center;line-height:1.05}
-.brusaamOfferCorner strong{font-size:9px;letter-spacing:.2px;color:white!important}
-.brusaamOfferCorner b{font-size:14px;color:white!important}
+/* Cinta diagonal compacta: anclada al borde superior izquierdo, sin cubrir el centro de la fotografía. */
+.brusaamOfferCorner{position:absolute;top:0;left:0;z-index:2;width:77px;height:77px;overflow:hidden;pointer-events:none;background:transparent!important;clip-path:none!important;filter:none!important;padding:0!important;min-width:0!important;min-height:0!important;display:block!important}
+.brusaamOfferCorner strong{position:absolute;top:15px;left:-23px;width:105px;padding:3px 0;transform:rotate(-45deg);background:#e02028;color:#fff!important;font-size:10px!important;font-weight:900;letter-spacing:.5px;text-align:center;line-height:1.1;box-shadow:0 2px 4px #0002}
+.brusaamPriceOfferRow{display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap}
+.brusaamPriceOfferRow .price{margin:0}
+.brusaamPriceOfferRow .brusaamDiscountBadge{margin:0;white-space:nowrap}
+.presentationPriceOfferRow{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.presentationPriceOfferRow .brusaamDiscountBadge{margin:0}
 .brusaamSeeMore{grid-column:1/-1;justify-self:stretch;width:100%;border-radius:12px;background:#782bd5;color:#fff;font-weight:700;min-height:42px;margin:8px 0 18px!important}
-@media(max-width:600px){.brusaamOfferCorner{min-width:49px;min-height:47px;padding:6px 4px;top:6px;left:5px}.brusaamOfferCorner strong{font-size:8px}.brusaamOfferCorner b{font-size:12px}.brusaamSeeMore{margin-top:8px!important}}
+@media(max-width:600px){.brusaamOfferCorner{width:65px;height:65px}.brusaamOfferCorner strong{top:13px;left:-25px;width:100px;font-size:9px!important}.brusaamSeeMore{margin-top:8px!important}}
 </style>
 </head>
 <body>
@@ -2365,8 +2370,7 @@ function productCard(product) {
    if(discount>0){
     const corner=node('span');corner.className='brusaamOfferCorner';
     const title=node('strong','OFERTA');
-    const value=node('b','−'+discount+'%');
-    corner.append(title,value);
+    corner.append(title);
     frame.append(corner);
    }
   }
@@ -2472,15 +2476,16 @@ function productCard(product) {
    content.className = 'presentationOptionContent';
    content.append(node('strong', label));
    if (isOffer) {
-    const badge = offerBadge(base,finalPrice);
-    content.append(badge);
     const old = node('span', 'Antes: ' + money(base));
     old.className = 'presentationOldPrice';
     content.append(old);
    }
    const price = node('span', money(finalPrice));
    price.className = 'presentationShownPrice';
-   content.append(price);
+   const priceRow=node('span');priceRow.className='presentationPriceOfferRow';
+   priceRow.append(price);
+   if(isOffer)priceRow.append(offerBadge(base,finalPrice));
+   content.append(priceRow);
    // Mostrar el precio por mayor directamente dentro de la opción paquete.
    // Las ofertas no acumulan descuentos mayoristas.
    if (value === 'pack' && !packOffer && Number(product.special_only) !== 1 &&
@@ -2554,13 +2559,15 @@ function productCard(product) {
   );
 
   amount.className = 'price';
-  card.append(amount);
+  const priceRow=node('div');priceRow.className='brusaamPriceOfferRow';
+  priceRow.append(amount);
+  if(isOffer && Number(product.offer_price)<Number(product.retail))priceRow.append(offerBadge(product.retail,product.offer_price));
+  card.append(priceRow);
   if (isOffer) {
    const before = node('div', 'Antes: ' + money(product.retail));
    before.style.textDecoration = 'line-through';
    before.className = 'muted';
    card.append(before);
-   card.append(offerBadge(product.retail,product.offer_price));
   }
 
   const wholesale = node(
