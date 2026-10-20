@@ -1598,6 +1598,13 @@ footer .contactInfo {
 .brusaamPackCornerBadge{position:absolute;top:7px;right:5px;max-width:80px;font-size:10px;font-weight:800;line-height:1.15;text-align:center;padding:6px 5px;border-radius:8px;background:#722bdc;color:white;box-shadow:0 2px 8px #0002}
 .brusaamDiscountBadge{display:inline-block;align-self:flex-start;font-size:12px;font-weight:800;background:#d62828;color:#fff;border-radius:10px;padding:5px 9px;margin:4px 0}
 @media(max-width:600px){.brusaamTopGallery .brusaamPromoPhoto{max-height:230px!important}.brusaamPackCornerBadge{font-size:9px;max-width:65px}}
+
+/* BRUSAAM V30: etiqueta de oferta en esquina y vista inicial de 2 productos en móvil */
+.brusaamOfferCorner{position:absolute;top:8px;left:7px;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-width:58px;min-height:55px;padding:8px 6px;background:#d9222e;color:#fff;clip-path:polygon(50% 0%,61% 10%,75% 3%,82% 17%,97% 18%,94% 34%,100% 50%,94% 65%,97% 82%,82% 83%,75% 97%,61% 90%,50% 100%,39% 90%,25% 97%,18% 83%,3% 82%,6% 65%,0% 50%,6% 34%,3% 18%,18% 17%,25% 3%,39% 10%);filter:drop-shadow(0 2px 3px #0003);text-align:center;line-height:1.05}
+.brusaamOfferCorner strong{font-size:9px;letter-spacing:.2px;color:white!important}
+.brusaamOfferCorner b{font-size:14px;color:white!important}
+.brusaamSeeMore{grid-column:1/-1;justify-self:stretch;width:100%;border-radius:12px;background:#782bd5;color:#fff;font-weight:700;min-height:42px;margin:8px 0 18px!important}
+@media(max-width:600px){.brusaamOfferCorner{min-width:49px;min-height:47px;padding:6px 4px;top:6px;left:5px}.brusaamOfferCorner strong{font-size:8px}.brusaamOfferCorner b{font-size:12px}.brusaamSeeMore{margin-top:8px!important}}
 </style>
 </head>
 <body>
@@ -2350,6 +2357,19 @@ function productCard(product) {
    mark.className='brusaamPackCornerBadge';
    frame.append(mark);
   }
+  if(Number(product.ofertas)===1){
+   const original=Number(product.retail),sale=Number(product.offer_price);
+   const mangaOriginal=Number(product.manga_price),mangaSale=Number(product.offer_manga_price);
+   const discount=(original>0&&sale>0&&sale<original) ? offerPercentage(original,sale) :
+     (mangaOriginal>0&&mangaSale>0&&mangaSale<mangaOriginal ? offerPercentage(mangaOriginal,mangaSale) : 0);
+   if(discount>0){
+    const corner=node('span');corner.className='brusaamOfferCorner';
+    const title=node('strong','OFERTA');
+    const value=node('b','−'+discount+'%');
+    corner.append(title,value);
+    frame.append(corner);
+   }
+  }
   card.append(frame);
  } else {
   const empty = node('div', '📦');
@@ -2890,10 +2910,11 @@ function renderProducts() {
  more.type = 'button';
  more.style.margin = '20px auto';
  more.style.display = 'block';
+ more.className='brusaamSeeMore';
  const homePreview = !$('home').classList.contains('hidden') &&
   !query && !category && !sub && !currentSection;
  const addPage = () => {
-  const size = homePreview && shown === 0 ? 3 : 24;
+  const size = homePreview && shown === 0 ? (window.matchMedia('(max-width: 600px)').matches ? 2 : 3) : 24;
   const next = products.slice(shown, shown + size);
   for (const product of next) root.append(productCard(product));
   shown += next.length;
