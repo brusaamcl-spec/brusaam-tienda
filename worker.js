@@ -1583,6 +1583,21 @@ footer .contactInfo {
  #sectionTiles .brusaamSectionTile{transition:none!important}
  #sectionTiles .brusaamSectionTile:hover{transform:none}
 }
+
+.brusaamTopGallery{width:100%;max-width:none!important;margin:12px 0 22px!important;padding:0!important;min-height:110px}
+.brusaamTopGallery .brusaamPromoGallery{width:100%!important;max-width:none!important;grid-column:auto!important;min-height:110px!important;padding:0!important;overflow:hidden;border-radius:16px}
+.brusaamTopGallery .brusaamPromoPhoto{display:block;width:100%!important;height:auto!important;max-height:350px!important;object-fit:contain!important;border-radius:16px}
+.brusaamAddedToast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:9999;background:#fff;color:#372157;box-shadow:0 6px 30px #0003;border:1px solid #dcc5f6;border-radius:16px;padding:12px 16px;display:flex;gap:14px;align-items:center;justify-content:center;max-width:calc(100vw - 24px);width:max-content}
+.brusaamAddedToast.hidden{display:none!important}
+.brusaamAddedToast button{white-space:nowrap;background:#7828d8;color:white;padding:10px;border-radius:10px}
+.brusaamCartActions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.brusaamCartActions button{width:100%;font-size:clamp(12px,3vw,15px);padding:12px 7px}
+#keepShopping{background:#f3e9ff;color:#6524a9;border:1px solid #d9c3f6}
+.brusaamProductImageFrame{position:relative;width:100%}
+.brusaamProductImageFrame img{width:100%}
+.brusaamPackCornerBadge{position:absolute;top:7px;right:5px;max-width:80px;font-size:10px;font-weight:800;line-height:1.15;text-align:center;padding:6px 5px;border-radius:8px;background:#722bdc;color:white;box-shadow:0 2px 8px #0002}
+.brusaamDiscountBadge{display:inline-block;align-self:flex-start;font-size:12px;font-weight:800;background:#d62828;color:#fff;border-radius:10px;padding:5px 9px;margin:4px 0}
+@media(max-width:600px){.brusaamTopGallery .brusaamPromoPhoto{max-height:230px!important}.brusaamPackCornerBadge{font-size:9px;max-width:65px}}
 </style>
 </head>
 <body>
@@ -1689,6 +1704,7 @@ ${floralFooter}
 
 const SHOP = String.raw`
 <h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM</h1>
+<div id="promoGallerySlot" class="brusaamPromoGallery brusaamPromoPlaceholder brusaamTopGallery" aria-label="Espacio publicitario BRUSAAM">📷 Espacio publicitario Brusaam</div>
 
 <div class="search">
  <span>⌕</span>
@@ -1696,6 +1712,7 @@ const SHOP = String.raw`
   placeholder="Buscar productos, marcas o categorías...">
 </div>
 
+<div id="addedToast" class="brusaamAddedToast hidden" role="status" aria-live="polite"><strong>✓ Producto agregado</strong><button type="button" id="toastViewCart">Ver Carrito 🛒</button></div>
 <div class="shopLayout">
  <div class="shopLeft">
 
@@ -1704,7 +1721,7 @@ const SHOP = String.raw`
    <div id="categoryTiles" class="tiles"></div>
 
    <h2 class="sectionHeading">SECCIONES ESPECIALES</h2>
-   <div id="sectionTiles" class="tiles"><div id="promoGallerySlot" class="brusaamPromoGallery brusaamPromoPlaceholder" aria-label="Espacio publicitario">📷 Espacio publicitario Brusaam</div></div>
+   <div id="sectionTiles" class="tiles"></div>
 
    <div id="featuredAreas"></div>
   </div>
@@ -1772,9 +1789,10 @@ const SHOP = String.raw`
     <span id="total">$0</span>
    </div>
 
-   <button id="goCheckout" style="width:100%">
-    💬 Continuar pedido
-   </button>
+   <div class="brusaamCartActions"><button type="button" id="keepShopping">← Seguir comprando</button>
+   <button id="goCheckout" type="button">
+    💬 Solicitar Pedido
+   </button></div>
   </section>
  </aside>
 
@@ -1824,7 +1842,7 @@ const SHOP = String.raw`
 
  </div>
 
-  <section class="panel" id="customerPanel">
+  <section class="panel hidden" id="customerPanel">
   <h3>👤 Datos del Solicitante</h3>
 
   <label>Nombre y Apellido *
@@ -2299,14 +2317,40 @@ function addToCart(id, kind, quantity) {
  cart[key] = (cart[key] || 0) + quantity;
 
  renderCart();
+ const toast=$('addedToast');
+ toast.classList.remove('hidden');
+ clearTimeout(window.brusaamToastTimer);
+ window.brusaamToastTimer=setTimeout(()=>toast.classList.add('hidden'),5000);
 }
 
+$('toastViewCart').onclick=()=>{
+ $('addedToast').classList.add('hidden');
+ $('cartTitle').scrollIntoView({behavior:'smooth',block:'start'});
+};
+
+function offerPercentage(oldPrice,newPrice){
+ const original=Number(oldPrice),discount=Number(newPrice);
+ if(!(original>0&&discount>=0&&discount<original))return 0;
+ return Math.round((original-discount)/original*100);
+}
+function offerBadge(oldPrice,newPrice){
+ const badge=node('span','−'+offerPercentage(oldPrice,newPrice)+'%');
+ badge.className='brusaamDiscountBadge';
+ return badge;
+}
 function productCard(product) {
  const card = node('div');
  card.className = 'product';
 
  if (product.image) {
-  card.append(photo(product.image, product.name));
+  const frame=node('div');frame.className='brusaamProductImageFrame';
+  frame.append(photo(product.image, product.name));
+  if(packIdentity(product)){
+   const mark=node('span','💜 ARMA TU PACK');
+   mark.className='brusaamPackCornerBadge';
+   frame.append(mark);
+  }
+  card.append(frame);
  } else {
   const empty = node('div', '📦');
   empty.style.cssText =
@@ -2408,8 +2452,7 @@ function productCard(product) {
    content.className = 'presentationOptionContent';
    content.append(node('strong', label));
    if (isOffer) {
-    const badge = node('span', '🏷️ OFERTA');
-    badge.className = 'presentationOfferBadge';
+    const badge = offerBadge(base,finalPrice);
     content.append(badge);
     const old = node('span', 'Antes: ' + money(base));
     old.className = 'presentationOldPrice';
@@ -2446,11 +2489,11 @@ function productCard(product) {
 
   const update = () => {
    if (presentation.value !== 'manga' && Number(product.ofertas) === 1 && Number(product.offer_price) > 0) {
-    amount.textContent = money(product.offer_price) + ' · OFERTA';
+    amount.textContent = money(product.offer_price);
     details.textContent = 'Antes: ' + money(product.retail) + ' por paquete';
    } else if (presentation.value === 'manga') {
     amount.textContent =
-     money(priceFor(product, 'manga', 1)) + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · OFERTA por manga' : ' por manga');
+     money(priceFor(product, 'manga', 1)) + ' por manga';
 
     details.textContent =
      product.packs_per_manga + ' paquetes por manga' + (Number(product.ofertas) === 1 && Number(product.offer_manga_price) > 0 ? ' · Antes: ' + money(product.manga_price) : '');
@@ -2497,9 +2540,7 @@ function productCard(product) {
    before.style.textDecoration = 'line-through';
    before.className = 'muted';
    card.append(before);
-   const tag = node('strong', 'OFERTA · Ahorras ' + money(Math.max(0, Number(product.retail) - Number(product.offer_price))));
-   tag.style.color = '#c62828';
-   card.append(tag);
+   card.append(offerBadge(product.retail,product.offer_price));
   }
 
   const wholesale = node(
@@ -2628,7 +2669,9 @@ function renderHome() {
   }
  }
 
- // Espacio publicitario: ocupa los tres lugares libres junto a Box Pyme.
+ // Espacio publicitario de ancho completo entre bienvenida y buscador.
+ const promoRoot=$('promoGallerySlot');
+ promoRoot.replaceChildren();
  const gallery = Array.isArray(store.promoGallery) ? store.promoGallery : [];
  if (gallery.length) {
   const banner = node('div');
@@ -2639,7 +2682,7 @@ function renderHome() {
   pic.className = 'brusaamPromoPhoto';
   pic.loading = 'lazy';
   banner.append(pic);
-  root.append(banner);
+  promoRoot.append(banner);
   if (gallery.length > 1) {
    let pos=0;
    sectionTimers.push(setInterval(()=>{
@@ -2658,7 +2701,7 @@ function renderHome() {
  } else {
   const placeholder=node('div','📷 Espacio publicitario · Sube tus fotografías en Administración → Secciones');
   placeholder.className='brusaamPromoGallery brusaamPromoPlaceholder';
-  root.append(placeholder);
+  promoRoot.append(placeholder);
  }
 
 }
@@ -2751,7 +2794,7 @@ function openCategory(category, sub = '', push = true) {
  if (sub) $('subTiles').replaceChildren();
  else renderSubTiles(category);
  const filters = document.querySelector('.filters');
- if (filters) filters.classList.toggle('hidden',!sub);
+ if (filters) filters.classList.remove('hidden');
  setRoute('category:'+category+(sub?'|'+sub:''),push);
  renderProducts();
  $('catalogSection').scrollIntoView({behavior:'smooth'});
@@ -2802,7 +2845,7 @@ function renderProducts() {
  const category = $('filterCategory').value;
  const sub = $('filterSub').value;
 
- const folderOnly = !!category && !sub && !currentSection && !query;
+ const folderOnly = false; // Mostrar productos al elegir categoría; subcategoría es filtro opcional.
  const products = store.products.filter(product => {
   if (folderOnly) return false;
   if (!currentSection && Number(product.special_only) === 1) return false;
@@ -3258,12 +3301,17 @@ $('panAzucarConfirm').onchange = () => {
 };
 $('panAzucarSector').oninput = renderCart;
 
+$('keepShopping').onclick = () => {
+ $('customerPanel').classList.add('hidden');
+ home();
+};
 $('goCheckout').onclick = () => {
  if (!Object.keys(cart).length) {
   alert('Agrega productos al carrito.');
   return;
  }
 
+ $('customerPanel').classList.remove('hidden');
  $('customerPanel').scrollIntoView({
   behavior: 'smooth'
  });
