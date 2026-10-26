@@ -2540,15 +2540,34 @@ function renderPublicShippingRates(){
   if(emphasis){td.style.fontWeight='700';cost.style.fontWeight='700';}
   tr.append(td,cost);tbody.append(tr);
  };
+ const effectiveRate=id=>{
+  const value=rates[id];
+  return value!==undefined&&value!==null&&value!==''&&Number.isFinite(Number(value))&&Number(value)>=0
+   ?Number(value):defaults[id];
+ };
+ const custom=(cfg.customSectors||[]).filter(sector=>sector.enabled===true);
+ const isCoquimbo=sector=>String(sector.commune||'').trim().toLowerCase()==='coquimbo';
+ const customRate=sector=>Number(sector.price)||0;
+ const freeCustom=custom.filter(sector=>customRate(sector)===0);
+ const paidCustom=custom.filter(sector=>customRate(sector)!==0);
+ // 1. Modalidades y sectores con despacho gratis.
  add('Compras desde '+money(threshold)+' en sectores de reparto local de La Serena y Coquimbo',0,true);
  add('Retiro',0,true);
- for(const [id,label] of Object.entries(labels)){
-  const rate=Number(rates[id]);add(label,Number.isFinite(rate)&&rate>=0?rate:defaults[id]);
+ for(const id of ['coquimbo_general','panul','pan_azucar','cruz_cana','serena_general','companias','caleta']){
+  if(effectiveRate(id)===0)add(labels[id],0);
  }
- for(const sector of cfg.customSectors||[]){
-  if(sector.enabled!==true)continue;
-  add(sector.name+' ('+(sector.commune==='la serena'?'La Serena':'Coquimbo')+')',Number(sector.price)||0);
+ for(const sector of freeCustom)add(sector.name+' ('+(isCoquimbo(sector)?'Coquimbo':'La Serena')+')',0);
+ // 2. Coquimbo y sus sectores.
+ for(const id of ['coquimbo_general','panul','pan_azucar','cruz_cana']){
+  if(effectiveRate(id)!==0)add(labels[id],effectiveRate(id));
  }
+ for(const sector of paidCustom.filter(isCoquimbo))add(sector.name+' (Coquimbo)',customRate(sector));
+ // 3. La Serena y sus sectores.
+ for(const id of ['serena_general','companias','caleta']){
+  if(effectiveRate(id)!==0)add(labels[id],effectiveRate(id));
+ }
+ for(const sector of paidCustom.filter(sector=>!isCoquimbo(sector)))add(sector.name+' (La Serena)',customRate(sector));
+ // 4. Destinos fuera de las comunas de reparto local.
  add('Otras regiones/comunas',null);
  const banner=document.querySelector('.brusaamHero .freeShippingSubtitle');
  if(banner)banner.textContent='✨Despacho gratis desde '+money(threshold)+' en Coquimbo y La Serena✨';
