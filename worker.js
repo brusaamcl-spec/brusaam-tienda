@@ -2364,32 +2364,7 @@ const SHOP = String.raw`
       <th>Tarifa</th>
      </tr>
     </thead>
-    <tbody>
-     <tr class="brusaamFreeShippingFirst">
-      <td><strong>Compras sobre $30.000 en La Serena y Coquimbo</strong></td>
-      <td><strong>Gratis</strong></td>
-     </tr>
-     <tr>
-      <td>Retiro</td>
-      <td><strong>Gratis</strong></td>
-     </tr>
-     <tr>
-      <td>Pan de Azúcar (Excluye Cruz de Caña)</td>
-      <td><strong>Gratis</strong></td>
-     </tr>
-     <tr><td>Cruz de Caña (Coquimbo)</td><td>$1.500</td></tr>
-     <tr><td>La Serena </td><td>$2.000</td></tr>
-     <tr><td>El Panul / La Rinconada (Coquimbo)</td><td>$2.000</td></tr>
-     <tr><td>Las Compañías y alrededores (La Serena)</td><td>$2.500</td></tr>
-     <tr>
-      <td>Coquimbo</td>
-      <td>$1.500</td>
-     </tr>
-     <tr>
-      <td>Otras regiones/comunas</td>
-      <td>Envío por pagar</td>
-     </tr>
-    </tbody>
+    <tbody id="brusaamShippingRatesBody"><tr><td colspan="2">Cargando tarifas vigentes…</td></tr></tbody>
    </table>
   </div>
  </section>
@@ -2536,6 +2511,34 @@ let store = {
  customPacks: [],
  shippingSettings: null
 };
+
+function renderPublicShippingRates(){
+ const cfg=store.shippingSettings||{};
+ const threshold=Number.isFinite(Number(cfg.freeThreshold))?Number(cfg.freeThreshold):30000;
+ const rates=cfg.rates||{};
+ const labels={serena_general:'La Serena – sector general',companias:'Las Compañías y alrededores (La Serena)',caleta:'Caleta San Pedro / Islón / Lambert / Romeral',coquimbo_general:'Coquimbo – sector general',panul:'El Panul / La Rinconada (Coquimbo)',pan_azucar:'Pan de Azúcar (excluye Cruz de Caña)',cruz_cana:'Cruz de Caña (Coquimbo)'};
+ const defaults={serena_general:2000,companias:2500,caleta:2500,coquimbo_general:1500,panul:2000,pan_azucar:0,cruz_cana:1500};
+ const tbody=$('brusaamShippingRatesBody');if(!tbody)return;
+ tbody.replaceChildren();
+ const add=(name,price,emphasis=false)=>{
+  const tr=document.createElement('tr');const td=document.createElement('td'),cost=document.createElement('td');
+  td.textContent=name;cost.textContent=price===null?'Envío por pagar':price===0?'Gratis':money(price);
+  if(emphasis){td.style.fontWeight='700';cost.style.fontWeight='700';}
+  tr.append(td,cost);tbody.append(tr);
+ };
+ add('Compras desde '+money(threshold)+' en sectores de reparto local de La Serena y Coquimbo',0,true);
+ add('Retiro',0,true);
+ for(const [id,label] of Object.entries(labels)){
+  const rate=Number(rates[id]);add(label,Number.isFinite(rate)&&rate>=0?rate:defaults[id]);
+ }
+ for(const sector of cfg.customSectors||[]){
+  if(sector.enabled!==true)continue;
+  add(sector.name+' ('+(sector.commune==='la serena'?'La Serena':'Coquimbo')+')',Number(sector.price)||0);
+ }
+ add('Otras regiones/comunas',null);
+ const banner=document.querySelector('.brusaamHero .freeShippingSubtitle');
+ if(banner)banner.textContent='✨Despacho gratis desde '+money(threshold)+' en Coquimbo y La Serena✨';
+}
 
 let cart = {};
 let brusaamOrderMode='normal';
@@ -3889,10 +3892,11 @@ function renderCart() {
   notices[delivery.type];
  const v32Progress = $('v32FreeDeliveryProgress');
  if (v32Progress) {
-  const remaining = Math.max(0,30000-productsTotal);
+  const freeThreshold=Number(store.shippingSettings?.freeThreshold ?? 30000);
+  const remaining = Math.max(0,freeThreshold-productsTotal);
   v32Progress.textContent = remaining > 0
    ? '🚚 Te faltan ' + money(remaining) + ' en productos para obtener despacho gratis en La Serena y Coquimbo.'
-   : '💜 ¡Alcanzaste el mínimo de $30.000! Despacho gratis en todas las zonas de reparto local de La Serena y Coquimbo.';
+   : '💜 ¡Alcanzaste el mínimo de '+money(freeThreshold)+'! Despacho gratis en todas las zonas de reparto local de La Serena y Coquimbo.';
  }
 }
 
@@ -4274,6 +4278,7 @@ async function loadShop() {
   store = await response.json();
 
   decorate(store);
+  renderPublicShippingRates();
   fillCategories();
   renderHome();
   const route = decodeURIComponent(location.hash.slice(1));
