@@ -220,7 +220,21 @@ function checkOrigin(request) {
 
 /* BASE DE DATOS */
 
+// Optimización V32: comprobar y migrar el esquema una sola vez por instancia
+// del Worker, en vez de repetir decenas de consultas D1 por cada petición.
+// Las promesas simultáneas comparten la misma inicialización. Si falla,
+// se elimina la caché para permitir reintentos sin bloquear la tienda.
+let brusaamSchemaInitialization = null;
 async function initialize(env) {
+  if (!brusaamSchemaInitialization) {
+    brusaamSchemaInitialization = initializeSchema(env).catch(error => {
+      brusaamSchemaInitialization = null;
+      throw error;
+    });
+  }
+  return brusaamSchemaInitialization;
+}
+async function initializeSchema(env) {
   if (!env.DB) {
     throw Error("No está configurado el binding DB");
   }
@@ -5216,7 +5230,7 @@ function renderProducts() {
  $('adminProductCount').textContent=visible.length+' producto(s) encontrados';
  for(const product of visible){
   const card=document.createElement('article');card.className='adminProductCard';
-  if(product.image){const img=document.createElement('img');img.src=product.image;img.alt=product.name;img.loading='lazy';card.append(img);}else{const placeholder=document.createElement('div');placeholder.style.cssText='height:140px;display:grid;place-items:center;background:#f8f7fb;border-radius:9px';placeholder.textContent='📷 Sin fotografía';card.append(placeholder);}
+  if(product.image){const img=document.createElement('img');img.src=product.image;img.alt=product.name;img.loading='lazy';img.decoding='async';card.append(img);}else{const placeholder=document.createElement('div');placeholder.style.cssText='height:140px;display:grid;place-items:center;background:#f8f7fb;border-radius:9px';placeholder.textContent='📷 Sin fotografía';card.append(placeholder);}
   const title=document.createElement('div');title.className='cardName';title.textContent=product.name;card.append(title);
   const sub=document.createElement('div');sub.className='cardStatus';sub.textContent=[product.category,product.subcategory].filter(Boolean).join(' · ');card.append(sub);
   const fields=document.createElement('div');fields.className='cardFields';
@@ -5419,7 +5433,7 @@ function renderPromoGallery() {
  for (const [i,url] of (data.promoGallery||[]).entries()) {
   const row=document.createElement('div');
   row.className='adminRow';
-  const img=document.createElement('img');img.src=url;img.alt='Publicidad '+(i+1);
+  const img=document.createElement('img');img.src=url;img.alt='Publicidad '+(i+1);img.loading='lazy';img.decoding='async';
   const remove=document.createElement('button');remove.type='button';remove.textContent='Eliminar';
   remove.onclick=async()=>{if(!confirm('¿Eliminar esta fotografía publicitaria?'))return;
    try {await savePromoGallery(data.promoGallery.filter((_,j)=>j!==i));message('promoMessage','Fotografía eliminada.');}
