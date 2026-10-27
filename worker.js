@@ -584,9 +584,15 @@ async function getData(env, admin = false) {
     )
   );
 
-  const bundleRows=(await env.DB.prepare('SELECT bundle_id,component_id,quantity FROM shop_bundle_components').all()).results||[];
+  // Ejecutar lecturas independientes de D1 en paralelo para acortar la espera.
+  const [bundleResult,stockResult,financeResult]=await Promise.all([
+   env.DB.prepare('SELECT bundle_id,component_id,quantity FROM shop_bundle_components').all(),
+   env.DB.prepare('SELECT id,stock,active FROM products').all(),
+   admin?env.DB.prepare('SELECT product_id,cost_with_vat,operating_percent FROM shop_product_finances').all():Promise.resolve(null)
+  ]);
+  const bundleRows=bundleResult.results||[];
   const catalog=products.results||[];
-  const allStock=(await env.DB.prepare('SELECT id,stock,active FROM products').all()).results||[];
+  const allStock=stockResult.results||[];
   const stockMap=new Map(allStock.map(p=>[Number(p.id),p]));
   const bundleMap=new Map();
   for(const r of bundleRows){if(!bundleMap.has(r.bundle_id))bundleMap.set(r.bundle_id,[]);bundleMap.get(r.bundle_id).push({id:r.component_id,quantity:r.quantity});}
@@ -598,7 +604,7 @@ async function getData(env, admin = false) {
    }
   }
    if(admin){
-    const financeRows=(await env.DB.prepare('SELECT product_id,cost_with_vat,operating_percent FROM shop_product_finances').all()).results||[];
+    const financeRows=financeResult?.results||[];
     const financeMap=new Map(financeRows.map(r=>[Number(r.product_id),r]));
     for(const p of catalog){const f=financeMap.get(Number(p.id));p.cost_with_vat=f?Number(f.cost_with_vat):0;p.operating_percent=f?Number(f.operating_percent):20;}
    }
@@ -3402,6 +3408,7 @@ function renderHome() {
   tile.setAttribute('aria-label','Ver todos los productos de '+section.title);
   tile.onclick = () => openSection(slug);
   const img = photo(products[0]?.image || section.image || '',section.title);
+  img.loading = 'eager';
   img.className = 'brusaamSectionPhoto';
   if (!img.src || (!products.length && !section.image)) {
    img.removeAttribute('src');
@@ -3449,7 +3456,8 @@ function renderHome() {
   banner.setAttribute('aria-label','Publicidad Brusaam');
   const pic = photo(gallery[0], 'Publicidad Brusaam');
   pic.className = 'brusaamPromoPhoto';
-  pic.loading = 'lazy';
+  pic.loading = 'eager';
+  pic.fetchPriority = 'high';
   banner.append(pic);
   promoRoot.append(banner);
   if (gallery.length > 1) {
