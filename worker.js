@@ -2715,6 +2715,15 @@ const SHOP = String.raw`
 
   <section class="panel hidden" id="customerPanel">
   <h3>👤 Datos del Solicitante</h3>
+  <div id="brusaamCheckoutSavedBox" class="hidden" style="background:#f8f3ff;border:1px solid #e1d1f8;padding:15px;border-radius:14px;margin:12px 0">
+   <strong>💜 ¿Deseas utilizar tus datos guardados en BRUSAAM?</strong>
+   <div style="display:flex;flex-wrap:wrap;gap:9px;margin-top:12px">
+    <button type="button" id="brusaamCheckoutUseSaved">✅ Sí, utilizar mis datos guardados</button>
+    <button type="button" id="brusaamCheckoutUseOther" class="secondary">✏️ No, ingresar otros datos</button>
+   </div>
+   <label style="display:flex;gap:8px;align-items:center;margin-top:12px"><input type="checkbox" id="brusaamCheckoutSaveChanges" style="width:auto"> Guardar estos cambios en mi cuenta BRUSAAM</label>
+   <p class="muted" id="brusaamCheckoutSavedStatus">Puedes modificar cualquier dato antes de finalizar la compra. La ubicación GPS es opcional.</p>
+  </div>
 
   <label>Nombre y Apellido *
    <input id="customer" maxlength="120">
@@ -4420,11 +4429,76 @@ $('goCheckout').onclick = () => {
  brusaamCloseCart();
  $('customerPanel').classList.remove('brusaamOrderCompleted');$('brusaamCheckoutSuccess').classList.add('hidden');$('checkout').disabled=false;$('checkout').textContent='💜 Finalizar compra';$('checkout').style.background='';
  $('customerPanel').classList.remove('hidden');
+ brusaamCheckoutPrepareSaved();
  $('customerPanel').scrollIntoView({
   behavior: 'smooth'
  });
 };
 
+let brusaamCheckoutProfile=null;
+async function brusaamCheckoutPrepareSaved(){
+ const box=$('brusaamCheckoutSavedBox');
+ box.classList.add('hidden');brusaamCheckoutProfile=null;
+ $('brusaamCheckoutSaveChanges').checked=false;
+ try{
+  const r=await fetch('/api/customer/profile',{credentials:'same-origin'});
+  if(!r.ok)return;
+  const d=await r.json();if(!d.customer)return;
+  brusaamCheckoutProfile={...d.profile,name:d.customer.name,email:d.customer.email};
+  box.classList.remove('hidden');
+  $('brusaamCheckoutSavedStatus').textContent='Elige si deseas usar tus datos guardados. Puedes modificarlos antes de enviar el pedido.';
+ }catch(e){console.warn('No se pudieron consultar los datos guardados',e);}
+}
+function brusaamCheckoutFillSaved(){
+ const p=brusaamCheckoutProfile;if(!p)return;
+ $('customer').value=p.name||'';
+ $('customerPhone').value=p.whatsapp||'';
+ $('mode').value=p.delivery_method==='pickup'?'pickup':p.delivery_method==='delivery'?'Entrega a Domicilio':'';
+ $('mode').dispatchEvent(new Event('change'));
+ $('address').value=p.address||'';
+ $('region').value=p.region||'';
+ $('region').dispatchEvent(new Event('change'));
+ const opts=$('communeChoice');
+ if(p.commune){
+  if(![...opts.options].some(o=>o.value===p.commune)){
+   opts.value='__other__';$('otherCommune').value=p.commune;
+  }else opts.value=p.commune;
+  brusaamApplyCommuneSelection();
+ }
+ if(p.sector){
+  const sector=$('deliverySector');
+  if([...sector.options].some(o=>o.value===p.sector))sector.value=p.sector;
+  else $('brusaamCheckoutSavedStatus').textContent='Revisa el sector: el guardado no está disponible actualmente para esta comuna.';
+ }
+ $('customerMapsLink').value=p.maps_link||'';
+ $('gpsStatus').textContent=p.maps_link?'✓ Se usará tu ubicación GPS guardada. Puedes actualizarla con el botón.':'Ubicación GPS opcional. Puedes agregarla si lo deseas.';
+ const pay=[...document.querySelectorAll('input[name="paymentMethod"]')].find(x=>x.value===p.payment_method);
+ if(pay)pay.checked=true;
+ renderCart();
+}
+$('brusaamCheckoutUseSaved').onclick=brusaamCheckoutFillSaved;
+$('brusaamCheckoutUseOther').onclick=()=>{
+ for(const id of ['customer','customerPhone','address','customerMapsLink','otherCommune'])$(id).value='';
+ $('mode').value='';$('mode').dispatchEvent(new Event('change'));
+ $('region').value='';$('region').dispatchEvent(new Event('change'));
+ document.querySelectorAll('input[name="paymentMethod"]').forEach(x=>x.checked=false);
+ $('brusaamCheckoutSavedStatus').textContent='Ingresa los datos para este pedido. No se modificarán los de tu perfil salvo que marques guardar cambios.';
+ renderCart();
+};
+async function brusaamCheckoutSaveProfileIfRequested(){
+ if(!$('brusaamCheckoutSaveChanges').checked||!brusaamCheckoutProfile)return;
+ const p={
+  name:$('customer').value.trim(),whatsapp:$('customerPhone').value.trim(),
+  region:$('region').value,commune:$('commune').value,
+  sector:$('deliverySector').value,address:$('address').value.trim(),
+  maps_link:$('customerMapsLink').value,
+  payment_method:document.querySelector('input[name="paymentMethod"]:checked')?.value||'',
+  delivery_method:$('mode').value==='pickup'?'pickup':'delivery'
+ };
+ const r=await fetch('/api/customer/profile',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)});
+ if(!r.ok)throw Error('El pedido se registró, pero no se pudieron guardar los cambios en tu perfil.');
+ brusaamCheckoutProfile={...brusaamCheckoutProfile,...p};
+}
 let brusaamDirectId=null;
 let brusaamCheckoutDirect=false;
 let brusaamSending=false;
@@ -4631,6 +4705,7 @@ $('checkout').onclick = async () => {
     home();
    };
    $('brusaamSummaryNo').onclick=()=>{$('customerPanel').classList.remove('brusaamOrderCompleted');$('brusaamCheckoutSuccess').classList.add('hidden');$('customerPanel').classList.add('hidden');$('checkout').disabled=false;$('checkout').textContent='💜 Finalizar compra';$('checkout').style.background='';home();};
+   try{await brusaamCheckoutSaveProfileIfRequested();}catch(e){console.warn(e);alert(e.message);}
    try{localStorage.setItem('brusaam_last_checkout',JSON.stringify({id:reservationId,code}));}catch(e){}
    try{localStorage.removeItem('brusaam_checkout_retry');sessionStorage.removeItem('brusaam_checkout_retry');}catch(e){}
    cart={};saveBrusaamCart();renderCart();
