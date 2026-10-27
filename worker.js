@@ -724,8 +724,21 @@ async function customerApi(request,env,path){
  }
  if(path==='/api/customer/benefits'&&request.method==='GET'){
   const c=await customerSession(request,env);if(!c)return reply({error:'Inicia sesión.'},401);
-  // No atribuir compras previas ni prometer descuentos antes de validar pagos y entregas.
-  return reply({enabled:false,message:'Estamos preparando tus beneficios BRUSAAM. Los cupones todavía no están activos.'});
+  // Contar únicamente pedidos de esta cuenta, entregados, confirmados y con abonos suficientes.
+  // Nunca se considera el nombre, correo o teléfono para atribuir compras históricas.
+  const summary=await env.DB.prepare(`
+   SELECT COUNT(*) AS completed FROM shop_orders o
+   JOIN shop_sales s ON s.order_id=o.id AND s.source='online'
+   WHERE o.customer_account_id=? AND o.status='confirmed' AND o.delivered_at>0
+     AND s.total>0
+     AND COALESCE((SELECT SUM(p.amount) FROM shop_order_payments p WHERE p.order_id=o.id),0)>=s.total
+  `).bind(c.id).first();
+  const completed=Math.max(0,Number(summary?.completed||0));
+  const towardNext=completed%10;
+  return reply({enabled:false,completed,progress:towardNext,nextMilestone:(Math.floor(completed/10)+1)*10,
+   message:'Tienes '+completed+' compra(s) entregada(s) y completamente pagada(s) registradas en tu cuenta. '+
+   'Te faltan '+(10-towardNext)+' para alcanzar el próximo tramo de 10 compras. '+
+   'Los cupones del 5 % aún no están habilitados; no se han emitido descuentos.'});
  }
  if(path==='/api/customer/logout'&&request.method==='POST'){
   const token=customerCookie(request);
@@ -4803,7 +4816,17 @@ async function brusaamLoadOrders(){
  }catch(e){root.replaceChildren(node('p',e.message))}
 }
 async function brusaamLoadBenefits(){
- try{const d=await brusaamCustomerGet('/api/customer/benefits');$('brusaamCustomerBenefitsText').textContent=d.message||'Los beneficios aún no están activos.';}
+ try{
+  const d=await brusaamCustomerGet('/api/customer/benefits');
+  const el=$('brusaamCustomerBenefitsText');
+  el.textContent=d.message||'Los beneficios aún no están activos.';
+  if(Number.isInteger(d.completed)){
+   const meter=document.createElement('progress');meter.max=10;meter.value=d.progress||0;
+   meter.setAttribute('aria-label','Progreso hacia las próximas 10 compras');
+   meter.style.cssText='display:block;width:100%;height:18px;margin:12px 0';
+   el.appendChild(meter);
+  }
+ }
  catch(e){$('brusaamCustomerBenefitsText').textContent=e.message}
 }
 $('brusaamAccountForm').addEventListener('submit',async event=>{
@@ -7732,7 +7755,7 @@ export default {
     const method = request.method;
 
     try {
-      if (path.startsWith("/api/customer/")) return customerApi(request,env,path);
+      if (path.startsWith("/api/customer/")) return await customerApi(request,env,path);
 
       if (path === "/" && method === "GET") {
         return htmlPage(SHOP);
