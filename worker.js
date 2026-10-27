@@ -5041,7 +5041,7 @@ const ADMIN = String.raw`
    <div class="flex"><button type="button" id="inventoryRefresh">↻ Actualizar inventario</button><button type="button" id="inventoryExport">⬇ Descargar inventario (Excel/CSV)</button><button type="button" id="inventoryMovementsExport">⬇ Descargar mermas (Excel/CSV)</button></div>
    <p id="inventoryMessage" role="status"></p><div id="inventorySummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin:14px 0"></div>
    <label>🔎 Buscar producto <input id="inventorySearch" type="search" placeholder="Nombre o categoría"></label>
-   <label>Filtrar inventario<select id="inventoryFilter"><option value="all">Todos los productos</option><option value="low">Poco stock (1 a 2)</option><option value="zero">Sin stock disponible</option><option value="recoverable">Con merma recuperable</option></select></label>
+   <label>Filtrar inventario<select id="inventoryFilter"><option value="all">Todos los productos</option><option value="high10">Stock mayor a 10 unidades (11+)</option><option value="low5">Stock menor a 5 unidades (1 a 4)</option><option value="zero">Stock 0 — Reponer</option><option value="recoverable">Con merma recuperable</option></select></label>
    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Producto</th><th>Disponible</th><th>Recuperable</th><th>Total físico</th><th>Costo unitario</th><th>Valor disponible</th><th>Acción</th></tr></thead><tbody id="inventoryRows"></tbody></table></div>
   </section>
   <section class="panel">
@@ -7345,7 +7345,7 @@ function renderInventory(){
  const items=inventoryCache.products||[];
  const term=($('inventorySearch').value||'').trim().toLocaleLowerCase('es');const filter=$('inventoryFilter').value;
  const tbody=$('inventoryRows');tbody.replaceChildren();
- for(const p of items.filter(p=>(p.name+' '+p.category).toLocaleLowerCase('es').includes(term)&&(filter==='all'||(filter==='low'&&p.stock>0&&p.stock<=2)||(filter==='zero'&&p.stock<=0)||(filter==='recoverable'&&p.recoverable>0)))){
+ for(const p of items.filter(p=>(p.name+' '+p.category).toLocaleLowerCase('es').includes(term)&&(filter==='all'||(filter==='high10'&&Number(p.stock)>10)||(filter==='low5'&&Number(p.stock)>0&&Number(p.stock)<5)||(filter==='zero'&&p.stock<=0)||(filter==='recoverable'&&p.recoverable>0)))){
   const tr=document.createElement('tr');
   for(const v of [p.name,Number(p.stock)||0,Number(p.recoverable)||0,(Number(p.stock)||0)+(Number(p.recoverable)||0),money(p.cost),money(p.value)])inventoryCell(tr,v);
   const action=document.createElement('td');const btn=document.createElement('button');btn.type='button';btn.textContent='⚙️ Gestionar';btn.onclick=()=>{$('inventoryProduct').value=String(p.id);$('inventoryCountProduct').value=String(p.id);$('inventoryCountQty').value=p.stock;$('inventoryFoundProduct').value=String(p.id);$('inventoryWasteForm').scrollIntoView({behavior:'smooth',block:'center'});};action.append(btn);tr.append(action);tbody.append(tr);
