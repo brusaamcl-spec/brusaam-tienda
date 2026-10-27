@@ -622,6 +622,101 @@ async function getData(env, admin = false) {
   };
 }
 
+
+/* BRUSAAM V32 - Cuentas de clientes, etapa 1. Sin alterar panel de administración. */
+let brusaamAccountInit=null;
+function initCustomerAccounts(env){
+ if(!brusaamAccountInit)brusaamAccountInit=(async()=>{
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customers (
+   id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+   password_salt TEXT NOT NULL, password_hash TEXT NOT NULL,
+   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  )`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customer_sessions (
+   token_hash TEXT PRIMARY KEY, customer_id TEXT NOT NULL, expires_at INTEGER NOT NULL,
+   created_at INTEGER NOT NULL
+  )`).run();
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_brusaam_customer_sessions_customer ON brusaam_customer_sessions(customer_id)').run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customer_login_attempts (
+   email TEXT PRIMARY KEY, failures INTEGER NOT NULL DEFAULT 0, until_ms INTEGER NOT NULL DEFAULT 0
+  )`).run();
+ })().catch(e=>{brusaamAccountInit=null;throw e});
+ return brusaamAccountInit;
+}
+function customerBase64(bytes){return base64url(bytes)}
+function customerRandom(){return customerBase64(crypto.getRandomValues(new Uint8Array(32)))}
+async function customerSha(text){return customerBase64(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(text))))}
+async function customerPassword(password,salt){
+ const key=await crypto.subtle.importKey('raw',encoder.encode(password),'PBKDF2',false,['deriveBits']);
+ const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(salt),iterations:180000,hash:'SHA-256'},key,256);
+ return customerBase64(new Uint8Array(bits));
+}
+function customerCookie(request){
+ const part=(request.headers.get('Cookie')||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('brusaam_customer='));
+ return part?part.slice('brusaam_customer='.length):'';
+}
+function customerSetCookie(request,token,maxAge){
+ const secure=new URL(request.url).protocol==='https:'?'; Secure':'';
+ return 'brusaam_customer='+token+'; Path=/; HttpOnly; SameSite=Lax'+secure+'; Max-Age='+maxAge;
+}
+async function customerSession(request,env){
+ const token=customerCookie(request);
+ if(!/^[a-zA-Z0-9_-]{43}$/.test(token))return null;
+ const row=await env.DB.prepare(`SELECT c.id,c.email,c.name FROM brusaam_customer_sessions s
+ JOIN brusaam_customers c ON c.id=s.customer_id WHERE s.token_hash=? AND s.expires_at>?`)
+ .bind(await customerSha(token),Date.now()).first();
+ return row||null;
+}
+async function createCustomerSession(request,env,id){
+ const token=customerRandom(),now=Date.now(),maxAge=60*60*24*30;
+ await env.DB.prepare('INSERT INTO brusaam_customer_sessions(token_hash,customer_id,expires_at,created_at) VALUES(?,?,?,?)')
+ .bind(await customerSha(token),id,now+maxAge*1000,now).run();
+ return customerSetCookie(request,token,maxAge);
+}
+async function customerApi(request,env,path){
+ if(request.method==='POST'&&!checkOrigin(request))return reply({error:'Origen no permitido.'},403);
+ if(path==='/api/customer/me'&&request.method==='GET'&&!customerCookie(request))return reply({customer:null});
+ await initCustomerAccounts(env);
+ if(path==='/api/customer/me'&&request.method==='GET')return reply({customer:await customerSession(request,env)});
+ if(path==='/api/customer/logout'&&request.method==='POST'){
+  const token=customerCookie(request);
+  if(/^[a-zA-Z0-9_-]{43}$/.test(token))await env.DB.prepare('DELETE FROM brusaam_customer_sessions WHERE token_hash=?').bind(await customerSha(token)).run();
+  return reply({ok:true},200,{'Set-Cookie':customerSetCookie(request,'',0)});
+ }
+ if(!['/api/customer/register','/api/customer/login'].includes(path)||request.method!=='POST')return reply({error:'Ruta no disponible.'},404);
+ const length=Number(request.headers.get('content-length')||0);
+ if(length>4000)return reply({error:'Solicitud demasiado grande.'},413);
+ let body;try{body=await request.json()}catch{return reply({error:'Datos inválidos.'},400)}
+ const email=String(body?.email||'').trim().toLowerCase();
+ const password=typeof body?.password==='string'?body.password:'';
+ if(!/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/.test(email)||email.length>254||password.length<10||password.length>128)
+  return reply({error:'Ingresa un correo válido y una contraseña de 10 a 128 caracteres.'},400);
+ if(path==='/api/customer/register'){
+  const name=String(body?.name||'').trim().replace(/\s+/g,' ');
+  if(name.length<2||name.length>120)return reply({error:'Ingresa tu nombre (2 a 120 caracteres).'},400);
+  const salt=customerRandom(),hash=await customerPassword(password,salt),id=crypto.randomUUID(),now=Date.now();
+  try{await env.DB.prepare('INSERT INTO brusaam_customers(id,email,name,password_salt,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').bind(id,email,name,salt,hash,now,now).run()}
+  catch(e){if(/unique|constraint/i.test(String(e)))return reply({error:'Este correo ya está registrado. Inicia sesión.'},409);throw e}
+  const cookie=await createCustomerSession(request,env,id);
+  return reply({ok:true,customer:{id,email,name}},201,{'Set-Cookie':cookie});
+ }
+ const attempts=await env.DB.prepare('SELECT failures,until_ms FROM brusaam_customer_login_attempts WHERE email=?').bind(email).first();
+ if(Number(attempts?.until_ms||0)>Date.now())return reply({error:'Demasiados intentos. Espera 15 minutos.'},429);
+ const row=await env.DB.prepare('SELECT id,email,name,password_salt,password_hash FROM brusaam_customers WHERE email=?').bind(email).first();
+ const dummySalt='brusaam-customer-login-dummy';
+ const hash=await customerPassword(password,row?.password_salt||dummySalt);
+ if(!row||hash!==row.password_hash){
+  const failures=Number(attempts?.failures||0)+1;
+  await env.DB.prepare(`INSERT INTO brusaam_customer_login_attempts(email,failures,until_ms) VALUES(?,?,?)
+   ON CONFLICT(email) DO UPDATE SET failures=excluded.failures,until_ms=excluded.until_ms`)
+   .bind(email,failures,failures>=5?Date.now()+15*60*1000:0).run();
+  return reply({error:'Correo o contraseña incorrectos.'},401);
+ }
+ await env.DB.prepare('DELETE FROM brusaam_customer_login_attempts WHERE email=?').bind(email).run();
+ const cookie=await createCustomerSession(request,env,row.id);
+ return reply({ok:true,customer:{id:row.id,email:row.email,name:row.name}},200,{'Set-Cookie':cookie});
+}
+
 /* RESERVAS V10: transacciones D1 y liberación de stock */
 async function releaseOrder(env, orderId, nextStatus) {
  const order=await env.DB.prepare("SELECT * FROM shop_orders WHERE id=?").bind(orderId).first();
@@ -2247,7 +2342,7 @@ function brusaamHeroShow(index){
  dots.forEach((dot,i)=>dot.classList.toggle('active',i===brusaamHeroIndex));
 }
 function brusaamHeroMove(step){brusaamHeroShow(brusaamHeroIndex+step)}
-setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},6000);
+setInterval(()=>{if(!document.hidden)brusaamHeroMove(1)},7000);
 </script>
  <main>${content}</main>
 <footer>
@@ -2312,6 +2407,29 @@ ${floralFooter}
 
 const SHOP = String.raw`
 <h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM</h1>
+
+<section id="brusaamCustomerArea" style="margin:12px auto;max-width:1100px;padding:0 12px">
+ <button type="button" id="brusaamAccountButton" class="secondary" style="float:right">👤 Mi cuenta / Registrarme</button>
+ <div style="clear:both"></div>
+ <div id="brusaamAccountPanel" class="panel hidden" style="max-width:460px;margin:12px 0 14px auto">
+  <h2>💜 Mi cuenta BRUSAAM</h2>
+  <p id="brusaamAccountMessage" role="status" aria-live="polite"></p>
+  <div id="brusaamAccountGuest">
+   <form id="brusaamAccountForm">
+    <label id="brusaamAccountNameLabel">Nombre completo<input id="brusaamAccountName" autocomplete="name" maxlength="120"></label>
+    <label>Correo electrónico<input id="brusaamAccountEmail" type="email" autocomplete="email" required maxlength="254"></label>
+    <label>Contraseña<input id="brusaamAccountPassword" type="password" autocomplete="new-password" minlength="10" maxlength="128" required></label>
+    <button id="brusaamAccountSubmit" type="submit">Crear cuenta gratis</button>
+   </form>
+   <button id="brusaamAccountToggle" type="button" class="secondary" style="margin-top:8px">Ya tengo cuenta: Iniciar sesión</button>
+  </div>
+  <div id="brusaamAccountSigned" class="hidden"><p id="brusaamAccountWelcome"></p>
+   <button id="brusaamAccountLogout" type="button" class="secondary">Cerrar sesión</button>
+  </div>
+  <p class="muted" style="font-size:12px">Puedes seguir comprando sin registrarte. Los beneficios de fidelidad se activarán cuando estén implementados y probados.</p>
+ </div>
+</section>
+
 <div id="promoGallerySlot" class="brusaamPromoGallery brusaamPromoPlaceholder brusaamTopGallery" aria-label="Espacio publicitario BRUSAAM">📷 Espacio publicitario Brusaam</div>
 
 <div class="search">
@@ -3485,7 +3603,7 @@ function renderHome() {
     if (!banner.isConnected || document.hidden) return;
     pos=(pos+1)%gallery.length;
     pic.src=gallery[pos];
-   },4000));
+   },7000));
    let x=null;
    banner.addEventListener('touchstart',e=>{x=e.touches[0]?.clientX ?? null},{passive:true});
    banner.addEventListener('touchend',e=>{
@@ -4409,6 +4527,48 @@ async function loadShop() {
   }
  }
 }
+
+
+/* Cuenta de cliente: registro e ingreso opcionales. */
+let brusaamAccountLoginMode=false;
+const brusaamAccountPanel=$('brusaamAccountPanel');
+$('brusaamAccountButton').addEventListener('click',()=>brusaamAccountPanel.classList.toggle('hidden'));
+function brusaamAccountMode(login){
+ brusaamAccountLoginMode=login;
+ $('brusaamAccountNameLabel').classList.toggle('hidden',login);
+ $('brusaamAccountPassword').autocomplete=login?'current-password':'new-password';
+ $('brusaamAccountSubmit').textContent=login?'Iniciar sesión':'Crear cuenta gratis';
+ $('brusaamAccountToggle').textContent=login?'¿No tienes cuenta? Regístrate gratis':'Ya tengo cuenta: Iniciar sesión';
+ $('brusaamAccountMessage').textContent='';
+}
+$('brusaamAccountToggle').addEventListener('click',()=>brusaamAccountMode(!brusaamAccountLoginMode));
+function brusaamAccountShow(customer){
+ $('brusaamAccountGuest').classList.toggle('hidden',!!customer);
+ $('brusaamAccountSigned').classList.toggle('hidden',!customer);
+ $('brusaamAccountButton').textContent=customer?'👤 Mi cuenta':'👤 Mi cuenta / Registrarme';
+ if(customer)$('brusaamAccountWelcome').textContent='¡Hola, '+customer.name+'! Tu cuenta está activa ('+customer.email+').';
+}
+$('brusaamAccountForm').addEventListener('submit',async event=>{
+ event.preventDefault();
+ const submit=$('brusaamAccountSubmit'),msg=$('brusaamAccountMessage');
+ submit.disabled=true;msg.textContent='Procesando...';
+ try{
+  const res=await fetch(brusaamAccountLoginMode?'/api/customer/login':'/api/customer/register',{
+   method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+   body:JSON.stringify({name:$('brusaamAccountName').value,email:$('brusaamAccountEmail').value,password:$('brusaamAccountPassword').value})
+  });
+  const data=await res.json();if(!res.ok)throw Error(data.error||'No se pudo completar la solicitud.');
+  $('brusaamAccountPassword').value='';brusaamAccountShow(data.customer);
+  msg.textContent='✓ Cuenta activa.';
+ }catch(e){msg.textContent=e.message}
+ finally{submit.disabled=false}
+});
+$('brusaamAccountLogout').addEventListener('click',async()=>{
+ try{const res=await fetch('/api/customer/logout',{method:'POST',credentials:'same-origin'});if(!res.ok)throw Error('No se pudo cerrar sesión.');
+ brusaamAccountShow(null);brusaamAccountMode(false);$('brusaamAccountMessage').textContent='Sesión cerrada.';
+ }catch(e){$('brusaamAccountMessage').textContent=e.message}
+});
+fetch('/api/customer/me',{credentials:'same-origin'}).then(r=>r.ok?r.json():null).then(data=>{if(data?.customer)brusaamAccountShow(data.customer)}).catch(()=>{});
 
 restoreBrusaamCart();
 loadShop();
@@ -7310,6 +7470,8 @@ export default {
     const method = request.method;
 
     try {
+      if (path.startsWith("/api/customer/")) return customerApi(request,env,path);
+
       if (path === "/" && method === "GET") {
         return htmlPage(SHOP);
       }
