@@ -458,7 +458,7 @@ async function initializeSchema(env) {
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS shop_inventory_movements (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL,
-    kind TEXT NOT NULL CHECK(kind IN ('loss','recoverable','restore','discard','sold_recoverable')),
+    kind TEXT NOT NULL CHECK(kind IN ('loss','recoverable','restore','discard','sold_recoverable','missing','found','count_add','count_remove')),
     quantity INTEGER NOT NULL CHECK(quantity>0),
     cost_snapshot INTEGER NOT NULL DEFAULT 0,
     reason TEXT NOT NULL DEFAULT '',
@@ -5015,6 +5015,7 @@ const ADMIN = String.raw`
   <button data-tab="orders" id="ordersTabButton">📦 Pedidos <span id="pendingOrdersBadge" class="pendingOrdersBadge hidden" aria-label="Pedidos pendientes">0</span></button>
   <button data-tab="sales">📊 Finanzas y ventas</button>
   <button data-tab="inventory">📦 Inventario y mermas</button>
+  <button data-tab="profitability">💰 Rentabilidad de productos</button>
   <button data-tab="packs">💜 Arma tu Pack</button>
   <button data-tab="sections">🏷️ Ofertas y Pack Ahorro</button>
   <button data-tab="categories">📁 Categorías</button>
@@ -5023,20 +5024,31 @@ const ADMIN = String.raw`
   <button data-tab="design">🎨 Diseño y logo</button>
  </div>
 
+ <div id="tab-profitability" class="hidden">
+  <section class="panel">
+   <h3>💰 Rentabilidad general de productos</h3>
+   <p class="muted">Resumen de todos los productos. Costo de compra con IVA incluido + 20% de gastos operacionales estimados, siguiendo el cálculo del editor de productos. La ganancia es estimada por unidad, no utilidad contable real. No incluye comisiones, reparto ni otros gastos no registrados.</p>
+   <div class="flex"><button type="button" id="profitRefresh">↻ Actualizar productos</button><button type="button" id="profitExport">⬇ Exportar resumen a Excel (CSV)</button></div>
+   <label>🔎 Buscar producto <input id="profitSearch" type="search" placeholder="Nombre o categoría"></label>
+   <p id="profitSummary" role="status"></p>
+   <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Producto</th><th>Stock</th><th>Costo compra</th><th>Operacional 20%</th><th>Costo total</th><th>Precio detalle</th><th>Ganancia detalle</th><th>Margen detalle</th><th>Precio mayor</th><th>Ganancia mayor</th><th>Margen mayor</th></tr></thead><tbody id="profitRows"></tbody></table></div>
+  </section>
+ </div>
  <div id="tab-inventory" class="hidden">
   <section class="panel">
    <h3>📦 Inventario actualizado y control de mermas</h3>
    <p class="muted">Stock normal y stock recuperable separados. Actualiza para consultar los datos actuales. Los movimientos se conservan como historial.</p>
    <div class="flex"><button type="button" id="inventoryRefresh">↻ Actualizar inventario</button><button type="button" id="inventoryExport">⬇ Descargar inventario (Excel/CSV)</button><button type="button" id="inventoryMovementsExport">⬇ Descargar mermas (Excel/CSV)</button></div>
-   <p id="inventoryMessage" role="status"></p><div id="inventorySummary"></div>
+   <p id="inventoryMessage" role="status"></p><div id="inventorySummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin:14px 0"></div>
    <label>🔎 Buscar producto <input id="inventorySearch" type="search" placeholder="Nombre o categoría"></label>
-   <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Producto</th><th>Normal</th><th>Recuperable</th><th>Total físico</th><th>Costo unitario</th><th>Valor disponible</th></tr></thead><tbody id="inventoryRows"></tbody></table></div>
+   <label>Filtrar inventario<select id="inventoryFilter"><option value="all">Todos los productos</option><option value="low">Poco stock (1 a 2)</option><option value="zero">Sin stock disponible</option><option value="recoverable">Con merma recuperable</option></select></label>
+   <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th>Producto</th><th>Disponible</th><th>Recuperable</th><th>Total físico</th><th>Costo unitario</th><th>Valor disponible</th><th>Acción</th></tr></thead><tbody id="inventoryRows"></tbody></table></div>
   </section>
   <section class="panel">
-   <h3>⚠️ Registrar merma</h3>
+   <h3>⚠️ Registrar merma o pérdida</h3>
    <form id="inventoryWasteForm">
     <label>Producto<select id="inventoryProduct" required></select></label>
-    <label>Tipo<select id="inventoryKind"><option value="loss">🔴 Merma definitiva</option><option value="recoverable">🟡 Merma recuperable (separar del stock normal)</option></select></label>
+    <label>Tipo<select id="inventoryKind"><option value="loss">🔴 Merma definitiva</option><option value="recoverable">🟡 Merma recuperable (separar del stock normal)</option><option value="missing">🚨 Pérdida por robo/extravío</option></select></label>
     <label>Cantidad<input id="inventoryQty" type="number" min="1" step="1" required value="1"></label>
     <label>Motivo<input id="inventoryReason" maxlength="120" required placeholder="Abollado, derramado, vencido..."></label>
     <label>Observaciones<input id="inventoryNotes" maxlength="500"></label>
@@ -5053,6 +5065,11 @@ const ADMIN = String.raw`
     <label>Motivo<input id="inventoryRecoverReason" maxlength="120" required placeholder="Venta con descuento / no recuperable"></label>
     <button type="submit">Guardar movimiento</button>
    </form>
+  </section>
+  <section class="panel"><h3>🔎 Conteo físico y producto encontrado</h3>
+   <p class="muted">Registra diferencias reales de inventario. Los ajustes y las recuperaciones conservan su historial.</p>
+   <form id="inventoryCountForm"><label>Producto<select id="inventoryCountProduct" required></select></label><label>Unidades disponibles contadas<input id="inventoryCountQty" type="number" min="0" step="1" required></label><label>Motivo<select id="inventoryCountReason"><option value="Conteo físico">Conteo físico</option><option value="Robo/extravío">Robo/extravío</option><option value="Corrección administrativa">Corrección administrativa</option></select></label><label>Observaciones<input id="inventoryCountNotes" maxlength="500" placeholder="Detalle del conteo"></label><button type="submit">Registrar diferencia de conteo</button></form>
+   <hr><form id="inventoryFoundForm"><h4>📦 Producto encontrado</h4><label>Producto<select id="inventoryFoundProduct" required></select></label><label>Cantidad<input id="inventoryFoundQty" type="number" min="1" step="1" value="1" required></label><label>Observación<input id="inventoryFoundReason" maxlength="120" required placeholder="Ej.: apareció en bodega"></label><button type="submit">Devolver unidades encontradas al disponible</button></form>
   </section>
   <section class="panel"><h3>🧾 Historial de mermas y movimientos</h3><div id="inventoryHistory" style="overflow-x:auto"></div></section>
  </div>
@@ -5640,6 +5657,7 @@ document.querySelectorAll('[data-tab]')
   button.onclick = () => {
    openTab(button.dataset.tab);
    if(button.dataset.tab==='inventory')loadInventory();
+   if(button.dataset.tab==='profitability')renderProfitability();
   };
  });
 
@@ -7295,24 +7313,50 @@ async function renderOrders() {
 $('refreshOrders').onclick=renderOrders;
 
 
+// Rentabilidad general: el mismo cálculo del editor de productos, con 20% fijo solicitado.
+function profitRowsData(){return (data.products||[]).map(p=>{
+ const cost=Number(p.cost_with_vat)||0, expense=cost*0.20, full=cost+expense;
+ const retail=Number(p.retail)||0, wholesale=Number(p.wholesale)||0;
+ return {p,cost,expense,full,retail,wholesale,detailProfit:retail-full,majorProfit:wholesale-full,
+  detailMargin:retail>0?(retail-full)/retail*100:null,majorMargin:wholesale>0?(wholesale-full)/wholesale*100:null};
+});}
+function renderProfitability(){
+ const term=($('profitSearch').value||'').toLocaleLowerCase('es').trim();
+ const rows=profitRowsData().filter(x=>(x.p.name+' '+(x.p.category||'')).toLocaleLowerCase('es').includes(term));
+ const tbody=$('profitRows');tbody.replaceChildren();
+ for(const x of rows){const tr=document.createElement('tr');const pct=n=>n===null?'—':n.toFixed(1)+'%';
+  for(const v of [x.p.name,x.p.stock,x.cost?money(x.cost):'Sin costo',x.cost?money(x.expense):'—',x.cost?money(x.full):'—',money(x.retail),x.cost?money(x.detailProfit):'Sin costo',x.cost?pct(x.detailMargin):'—',money(x.wholesale),x.cost?money(x.majorProfit):'Sin costo',x.cost?pct(x.majorMargin):'—'])inventoryCell(tr,v);
+  if(x.cost&&(x.detailProfit<0||x.majorProfit<0))tr.style.background='#fff0f0';tbody.append(tr);
+ }
+ $('profitSummary').textContent=rows.length+' productos · '+rows.filter(x=>!x.cost).length+' sin costo registrado · '+rows.filter(x=>x.cost&&(x.detailProfit<0||x.majorProfit<0)).length+' con alguna ganancia negativa (resaltados).';
+}
+$('profitSearch').oninput=renderProfitability;
+$('profitRefresh').onclick=async()=>{try{await refresh();renderProfitability();}catch(e){alert(e.message)}};
+$('profitExport').onclick=()=>{
+ const rows=[['ID','Producto','Categoría','Stock disponible','Costo compra con IVA','Gasto operacional 20%','Costo total estimado','Precio detalle','Ganancia detalle','Margen detalle %','Precio mayor','Ganancia mayor','Margen mayor %','Observación']];
+ for(const x of profitRowsData()){const pct=n=>n===null?'':Math.round(n*100)/100;
+  rows.push([x.p.id,x.p.name,x.p.category,x.p.stock,x.cost||'',x.cost?Math.round(x.expense):'',x.cost?Math.round(x.full):'',x.retail,x.cost?Math.round(x.detailProfit):'',x.cost?pct(x.detailMargin):'',x.wholesale,x.cost?Math.round(x.majorProfit):'',x.cost?pct(x.majorMargin):'',x.cost?'':'Falta costo de compra']);}
+ const csv='\ufeff'+rows.map(row=>row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');
+ const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='BRUSAAM_Rentabilidad_Productos_'+new Date().toISOString().slice(0,10)+'.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);
+};
 let inventoryCache={products:[],movements:[],summary:{}};
 function inventoryCell(row,value){const td=document.createElement('td');td.textContent=String(value);td.style.padding='7px';td.style.borderBottom='1px solid #ddd';row.append(td);}
 function renderInventory(){
  const items=inventoryCache.products||[];
- const term=($('inventorySearch').value||'').trim().toLocaleLowerCase('es');
+ const term=($('inventorySearch').value||'').trim().toLocaleLowerCase('es');const filter=$('inventoryFilter').value;
  const tbody=$('inventoryRows');tbody.replaceChildren();
- for(const p of items.filter(p=>(p.name+' '+p.category).toLocaleLowerCase('es').includes(term))){
+ for(const p of items.filter(p=>(p.name+' '+p.category).toLocaleLowerCase('es').includes(term)&&(filter==='all'||(filter==='low'&&p.stock>0&&p.stock<=2)||(filter==='zero'&&p.stock<=0)||(filter==='recoverable'&&p.recoverable>0)))){
   const tr=document.createElement('tr');
   for(const v of [p.name,Number(p.stock)||0,Number(p.recoverable)||0,(Number(p.stock)||0)+(Number(p.recoverable)||0),money(p.cost),money(p.value)])inventoryCell(tr,v);
-  tbody.append(tr);
+  const action=document.createElement('td');const btn=document.createElement('button');btn.type='button';btn.textContent='⚙️ Gestionar';btn.onclick=()=>{$('inventoryProduct').value=String(p.id);$('inventoryCountProduct').value=String(p.id);$('inventoryCountQty').value=p.stock;$('inventoryFoundProduct').value=String(p.id);$('inventoryWasteForm').scrollIntoView({behavior:'smooth',block:'center'});};action.append(btn);tr.append(action);tbody.append(tr);
  }
  const summary=inventoryCache.summary||{};
- $('inventorySummary').textContent='Productos: '+(summary.products||0)+' · Stock normal: '+(summary.normal||0)+' · Recuperable: '+(summary.recoverable||0)+' · Sin stock normal: '+(summary.outOfStock||0)+' · Valor disponible a costo: '+money(summary.value)+' · Pérdidas definitivas registradas: '+money(summary.lossValue);
+ $('inventorySummary').replaceChildren();for(const [label,value] of [['📦 Productos',summary.products||0],['🟢 Stock disponible',summary.normal||0],['🟡 Recuperables',summary.recoverable||0],['🔴 Mermas definitivas',money(summary.lossValue||0)],['🚨 Robo/extravío',money(summary.missingValue||0)],['💰 Valor disponible a costo',money(summary.value||0)]]){const card=document.createElement('div');card.style.cssText='background:#f7f4ff;border:1px solid #e6ddff;border-radius:12px;padding:12px';const title=document.createElement('div');title.textContent=label;title.style.fontSize='13px';const val=document.createElement('strong');val.textContent=String(value);val.style.cssText='display:block;font-size:21px;margin-top:5px';card.append(title,val);$('inventorySummary').append(card);}
  const hist=document.createElement('table');hist.style.width='100%';
  const head=document.createElement('tr');for(const h of ['Fecha','Producto','Movimiento','Unidades','Costo unitario','Motivo'])inventoryCell(head,h);hist.append(head);
  for(const m of inventoryCache.movements||[]){const tr=document.createElement('tr');for(const v of [new Date(m.created_at).toLocaleString('es-CL'),m.name||m.product_id,m.kind,m.quantity,money(m.cost_snapshot),m.reason])inventoryCell(tr,v);hist.append(tr);}
  $('inventoryHistory').replaceChildren(hist);
- const selects=[$('inventoryProduct'),$('inventoryRecoverProduct')];
+ const selects=[$('inventoryProduct'),$('inventoryRecoverProduct'),$('inventoryCountProduct'),$('inventoryFoundProduct')];
  for(const select of selects){const prev=select.value;select.replaceChildren();for(const p of items){const o=document.createElement('option');o.value=p.id;o.textContent=p.name+' (normal: '+p.stock+', recuperable: '+p.recoverable+')';select.append(o);}if(items.some(p=>String(p.id)===prev))select.value=prev;}
 }
 async function loadInventory(){
@@ -7321,7 +7365,7 @@ async function loadInventory(){
  catch(e){$('inventoryMessage').textContent='Error: '+e.message;}
 }
 $('inventoryRefresh').onclick=loadInventory;
-$('inventorySearch').oninput=renderInventory;
+$('inventorySearch').oninput=renderInventory;$('inventoryFilter').onchange=renderInventory;
 $('inventoryWasteForm').onsubmit=async e=>{
  e.preventDefault();const btn=e.target.querySelector('button');btn.disabled=true;
  try{
@@ -7336,6 +7380,8 @@ $('inventoryRecoverForm').onsubmit=async e=>{
   $('inventoryRecoverForm').reset();await loadInventory();
  }catch(err){alert(err.message);}finally{btn.disabled=false;}
 };
+$('inventoryCountForm').onsubmit=async e=>{e.preventDefault();const btn=e.target.querySelector('button');btn.disabled=true;try{const p=inventoryCache.products.find(x=>String(x.id)===$('inventoryCountProduct').value);const counted=Number($('inventoryCountQty').value);if(!p||!Number.isSafeInteger(counted)||counted<0)throw Error('Cantidad no válida');if(counted===p.stock){alert('El conteo coincide con el stock registrado. No hay diferencias.');return;}if(!confirm('¿Registrar ajuste de '+p.stock+' a '+counted+' unidades para '+p.name+'?'))return;await api('/api/admin/inventory/movement','POST',{product_id:p.id,kind:'count',counted,reason:$('inventoryCountReason').value,notes:$('inventoryCountNotes').value});await loadInventory();}catch(err){alert(err.message)}finally{btn.disabled=false;}};
+$('inventoryFoundForm').onsubmit=async e=>{e.preventDefault();const btn=e.target.querySelector('button');btn.disabled=true;try{await api('/api/admin/inventory/movement','POST',{product_id:Number($('inventoryFoundProduct').value),kind:'found',quantity:Number($('inventoryFoundQty').value),reason:$('inventoryFoundReason').value});$('inventoryFoundForm').reset();await loadInventory();}catch(err){alert(err.message)}finally{btn.disabled=false;}};
 $('inventoryMovementsExport').onclick=()=>{
  const rows=[['Fecha','Producto','Tipo de movimiento','Cantidad','Costo unitario registrado','Valor','Motivo','Observaciones']];
  for(const m of inventoryCache.movements||[])rows.push([new Date(m.created_at).toLocaleString('es-CL'),m.name||m.product_id,m.kind,m.quantity,m.cost_snapshot,Number(m.quantity)*Number(m.cost_snapshot),m.reason,m.notes]);
@@ -8564,33 +8610,35 @@ export default {
           COALESCE(r.quantity,0) AS recoverable,COALESCE(f.cost_with_vat,0) AS cost
           FROM products p LEFT JOIN shop_inventory_recoverable r ON r.product_id=p.id
           LEFT JOIN shop_product_finances f ON f.product_id=p.id ORDER BY p.name COLLATE NOCASE`).all()).results||[];
-        const products=rows.map(p=>({...p,stock:Number(p.stock)||0,recoverable:Number(p.recoverable)||0,cost:Number(p.cost)||0,value:((Number(p.stock)||0)+(Number(p.recoverable)||0))*(Number(p.cost)||0)}));
+        const products=rows.map(p=>({...p,stock:Number(p.stock)||0,recoverable:Number(p.recoverable)||0,cost:Number(p.cost)||0,value:(Number(p.stock)||0)*(Number(p.cost)||0)}));
         const movements=(await env.DB.prepare(`SELECT m.*,p.name FROM shop_inventory_movements m LEFT JOIN products p ON p.id=m.product_id ORDER BY m.id DESC LIMIT 500`).all()).results||[];
-        const loss=await env.DB.prepare("SELECT COALESCE(SUM(quantity*cost_snapshot),0) AS value FROM shop_inventory_movements WHERE kind IN ('loss','discard')").first();
-        return reply({products,movements,summary:{products:products.length,normal:products.reduce((a,p)=>a+p.stock,0),recoverable:products.reduce((a,p)=>a+p.recoverable,0),outOfStock:products.filter(p=>p.stock<=0).length,value:products.reduce((a,p)=>a+p.value,0),lossValue:Number(loss?.value)||0}});
+        const loss=await env.DB.prepare("SELECT COALESCE(SUM(CASE WHEN kind IN ('loss','discard') THEN quantity*cost_snapshot ELSE 0 END),0) AS value,COALESCE(SUM(CASE WHEN kind IN ('missing','count_remove') THEN quantity*cost_snapshot WHEN kind IN ('found','count_add') THEN -quantity*cost_snapshot ELSE 0 END),0) AS missing_value FROM shop_inventory_movements").first();
+        return reply({products,movements,summary:{products:products.length,normal:products.reduce((a,p)=>a+p.stock,0),recoverable:products.reduce((a,p)=>a+p.recoverable,0),outOfStock:products.filter(p=>p.stock<=0).length,value:products.reduce((a,p)=>a+p.value,0),lossValue:Number(loss?.value)||0,missingValue:Number(loss?.missing_value)||0}});
       }
       if(path==='/api/admin/inventory/movement'&&method==='POST'){
         const body=await request.json().catch(()=>null);
-        const pid=Number(body?.product_id),qty=Number(body?.quantity),kind=String(body?.kind||'');
+        const pid=Number(body?.product_id),kind=String(body?.kind||'');let qty=Number(body?.quantity);
         const reason=String(body?.reason||'').trim().slice(0,120),notes=String(body?.notes||'').trim().slice(0,500);
-        if(!Number.isSafeInteger(pid)||pid<1||!Number.isSafeInteger(qty)||qty<1||qty>100000||!['loss','recoverable','restore','discard'].includes(kind)||!reason)return reply({error:'Revisa producto, cantidad, tipo y motivo.'},400);
+        if(!Number.isSafeInteger(pid)||pid<1||!['loss','recoverable','restore','discard','missing','found','count'].includes(kind)||!reason)return reply({error:'Revisa producto, tipo y motivo.'},400);if(kind!=='count'&&(!Number.isSafeInteger(qty)||qty<1||qty>100000))return reply({error:'Cantidad no válida.'},400);
         const p=await env.DB.prepare(`SELECT p.id,p.stock,COALESCE(r.quantity,0) AS recoverable,COALESCE(f.cost_with_vat,0) AS cost FROM products p LEFT JOIN shop_inventory_recoverable r ON r.product_id=p.id LEFT JOIN shop_product_finances f ON f.product_id=p.id WHERE p.id=?`).bind(pid).first();
-        if(!p)return reply({error:'Producto no encontrado.'},404);
-        if(['loss','recoverable'].includes(kind)&&Number(p.stock)<qty)return reply({error:'Stock normal insuficiente.'},409);
+        if(!p)return reply({error:'Producto no encontrado.'},404);let actualKind=kind;if(kind==='count'){const counted=Number(body?.counted);if(!Number.isSafeInteger(counted)||counted<0||counted>10000000)return reply({error:'Conteo físico inválido.'},400);qty=Math.abs(counted-Number(p.stock));if(!qty)return reply({error:'No existe diferencia de inventario.'},400);actualKind=counted>Number(p.stock)?'count_add':'count_remove';}
+        if(['loss','recoverable','missing','count_remove'].includes(actualKind)&&Number(p.stock)<qty)return reply({error:'Stock normal insuficiente.'},409);
         if(['restore','discard'].includes(kind)&&Number(p.recoverable)<qty)return reply({error:'Stock recuperable insuficiente.'},409);
         const batch=[];
-        if(['loss','recoverable'].includes(kind)){
-          batch.push(env.DB.prepare('UPDATE products SET stock=stock-? WHERE id=? AND stock>=?').bind(qty,pid,qty));
-        }else{
+        if(['loss','recoverable','missing','count_remove'].includes(actualKind)){
+          if(kind==='count')batch.push(env.DB.prepare('UPDATE products SET stock=stock-? WHERE id=? AND stock=?').bind(qty,pid,Number(p.stock)));
+          else batch.push(env.DB.prepare('UPDATE products SET stock=stock-? WHERE id=? AND stock>=?').bind(qty,pid,qty));
+        }else if(['restore','discard'].includes(actualKind)){
           batch.push(env.DB.prepare('UPDATE shop_inventory_recoverable SET quantity=quantity-? WHERE product_id=? AND quantity>=?').bind(qty,pid,qty));
-        }
+        }else if(kind==='count'){batch.push(env.DB.prepare('UPDATE products SET stock=stock+? WHERE id=? AND stock=?').bind(qty,pid,Number(p.stock)));}
+        else{batch.push(env.DB.prepare('UPDATE products SET stock=stock+? WHERE id=?').bind(qty,pid));}
         batch.push(env.DB.prepare('INSERT INTO shop_stock_guard(value) SELECT changes()'));
         batch.push(env.DB.prepare('DELETE FROM shop_stock_guard'));
         if(kind==='recoverable'){
           batch.push(env.DB.prepare('INSERT INTO shop_inventory_recoverable(product_id,quantity) VALUES(?,?) ON CONFLICT(product_id) DO UPDATE SET quantity=quantity+excluded.quantity').bind(pid,qty));
         }
-        if(kind==='restore')batch.push(env.DB.prepare('UPDATE products SET stock=stock+? WHERE id=?').bind(qty,pid));
-        batch.push(env.DB.prepare('INSERT INTO shop_inventory_movements(product_id,kind,quantity,cost_snapshot,reason,notes,created_at) VALUES(?,?,?,?,?,?,?)').bind(pid,kind,qty,Math.round(Number(p.cost)||0),reason,notes,Date.now()));
+        if(actualKind==='restore')batch.push(env.DB.prepare('UPDATE products SET stock=stock+? WHERE id=?').bind(qty,pid));
+        batch.push(env.DB.prepare('INSERT INTO shop_inventory_movements(product_id,kind,quantity,cost_snapshot,reason,notes,created_at) VALUES(?,?,?,?,?,?,?)').bind(pid,actualKind,qty,Math.round(Number(p.cost)||0),reason,notes,Date.now()));
         try{await env.DB.batch(batch);return reply({ok:true});}
         catch(e){return reply({error:'No se pudo registrar el movimiento; revisa stock y vuelve a intentar.'},409);}
       }
