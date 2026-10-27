@@ -658,7 +658,7 @@ function customerRandom(){return customerBase64(crypto.getRandomValues(new Uint8
 async function customerSha(text){return customerBase64(new Uint8Array(await crypto.subtle.digest('SHA-256',encoder.encode(text))))}
 async function customerPassword(password,salt){
  const key=await crypto.subtle.importKey('raw',encoder.encode(password),'PBKDF2',false,['deriveBits']);
- const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(salt),iterations:180000,hash:'SHA-256'},key,256);
+ const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:encoder.encode(salt),iterations:100000,hash:'SHA-256'},key,256);
  return customerBase64(new Uint8Array(bits));
 }
 function customerCookie(request){
