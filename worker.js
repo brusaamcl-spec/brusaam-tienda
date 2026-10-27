@@ -2335,12 +2335,17 @@ body.brusaamCartLocked{overflow:hidden}
 #brusaamAccountPanel h2{padding-right:44px}
 #brusaamAccountClose{position:absolute;right:16px;top:13px;min-width:40px;min-height:40px;border-radius:50%;background:#f2edfa;color:#2d1953;font-size:25px;padding:0;cursor:pointer}
 body.brusaamAccountLocked{overflow:hidden}
+/* Portada visible durante la carga inicial: solo tienda pública. */
+body.brusaamCatalogLoading{overflow:hidden!important;overscroll-behavior:none}
+#brusaamCatalogLoadingStatus{position:fixed;z-index:980;bottom:16px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:10px 19px;border-radius:30px;background:rgba(255,255,255,.96);color:#52229c;font-weight:700;font-size:14px;box-shadow:0 3px 18px #2b18522b;text-align:center;pointer-events:none}
+body:not(.brusaamCatalogLoading) #brusaamCatalogLoadingStatus{display:none}
 #brusaamAccountForgot{display:block;margin:12px 0 0;background:transparent;border:0;color:#6122b4;text-decoration:underline;padding:5px 0;font-size:14px;cursor:pointer}
 #brusaamAccountResetArea{margin-top:12px;padding:14px;background:#f8f5fc;border-radius:12px}
 @media(max-width:650px){#brusaamAccountPanel{padding:18px!important;max-height:calc(100dvh - 18px)!important}}
 </style>
 </head>
-<body>
+<body${admin ? "" : ' class="brusaamCatalogLoading"'}>
+${admin ? "" : '<div id="brusaamCatalogLoadingStatus" role="status" aria-live="polite">💜 Preparando nuestro catálogo...</div>'}
 <header class="flowerHeader">
 ${floralHeader}
 <a id="brusaamLogoHomeLink" href="/" aria-label="Volver a la página principal de BRUSAAM" title="Volver al inicio" class="brusaamLogoHomeLink">
@@ -4561,7 +4566,11 @@ async function loadShop() {
   } else if (route.startsWith('section:')) openSection(route.slice(8),false);
   else home(false);
   renderCart();
+  // Permitir navegar únicamente cuando el catálogo está preparado.
+  document.body.classList.remove('brusaamCatalogLoading');
  } catch (error) {
+  // Nunca bloquear indefinidamente al visitante si falla la conexión.
+  document.body.classList.remove('brusaamCatalogLoading');
   $('products').textContent =
    'No fue posible cargar el catálogo. Revisa tu conexión e inténtalo nuevamente.';
   // El catálogo no está disponible: no ejecutar renderCart() ni alterar cantidades.
