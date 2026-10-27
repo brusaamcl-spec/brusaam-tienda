@@ -637,6 +637,15 @@ function initCustomerAccounts(env){
    created_at INTEGER NOT NULL
   )`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_brusaam_customer_sessions_customer ON brusaam_customer_sessions(customer_id)').run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customer_profiles (
+    customer_id TEXT PRIMARY KEY, whatsapp TEXT NOT NULL DEFAULT '', region TEXT NOT NULL DEFAULT '',
+    commune TEXT NOT NULL DEFAULT '', sector TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '',
+    payment_method TEXT NOT NULL DEFAULT '', delivery_method TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL DEFAULT 0
+  )`).run();
+  // Asociar pedidos nuevos a la cuenta autenticada, sin inferir propiedad por nombre o teléfono.
+  try{await env.DB.prepare("ALTER TABLE shop_orders ADD COLUMN customer_account_id TEXT NOT NULL DEFAULT ''").run();}
+  catch(e){if(!/duplicate column/i.test(String(e)))throw e;}
+  await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_brusaam_orders_customer_account ON shop_orders(customer_account_id,created_at DESC)').run();
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customer_password_resets (token_hash TEXT PRIMARY KEY,customer_id TEXT NOT NULL,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0)`).run();
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customer_login_attempts (
    email TEXT PRIMARY KEY, failures INTEGER NOT NULL DEFAULT 0, until_ms INTEGER NOT NULL DEFAULT 0
@@ -679,6 +688,45 @@ async function customerApi(request,env,path){
  if(path==='/api/customer/me'&&request.method==='GET'&&!customerCookie(request))return reply({customer:null});
  await initCustomerAccounts(env);
  if(path==='/api/customer/me'&&request.method==='GET')return reply({customer:await customerSession(request,env)});
+ if(path==='/api/customer/profile'&&request.method==='GET'){
+  const c=await customerSession(request,env);if(!c)return reply({error:'Inicia sesión.'},401);
+  const row=await env.DB.prepare('SELECT whatsapp,region,commune,sector,address,payment_method,delivery_method FROM brusaam_customer_profiles WHERE customer_id=?').bind(c.id).first();
+  return reply({customer:c,profile:row||{}});
+ }
+ if(path==='/api/customer/profile'&&request.method==='POST'){
+  const c=await customerSession(request,env);if(!c)return reply({error:'Inicia sesión.'},401);
+  let b;try{b=await request.json()}catch{return reply({error:'Datos inválidos.'},400)}
+  const name=cleanOrderText(b?.name,120).replace(/\s+/g,' ');
+  if(name.length<2)return reply({error:'Ingresa nombre y apellidos.'},400);
+  const whatsapp=String(b?.whatsapp||'').replace(/[^0-9+]/g,'').slice(0,20);
+  const region=cleanOrderText(b?.region,80),commune=cleanOrderText(b?.commune,80),sector=cleanOrderText(b?.sector,100),address=cleanOrderText(b?.address,240);
+  const payment=String(b?.payment_method||''),delivery=String(b?.delivery_method||'');
+  if(!['','Efectivo','Transferencia','Tarjeta Débito/Crédito'].includes(payment)||!['','pickup','delivery'].includes(delivery))return reply({error:'Preferencia inválida.'},400);
+  await env.DB.batch([
+   env.DB.prepare('UPDATE brusaam_customers SET name=?,updated_at=? WHERE id=?').bind(name,Date.now(),c.id),
+   env.DB.prepare(`INSERT INTO brusaam_customer_profiles(customer_id,whatsapp,region,commune,sector,address,payment_method,delivery_method,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(customer_id) DO UPDATE SET whatsapp=excluded.whatsapp,region=excluded.region,commune=excluded.commune,sector=excluded.sector,address=excluded.address,payment_method=excluded.payment_method,delivery_method=excluded.delivery_method,updated_at=excluded.updated_at`)
+    .bind(c.id,whatsapp,region,commune,sector,address,payment,delivery,Date.now())
+  ]);
+  return reply({ok:true,customer:{...c,name}});
+ }
+ if(path==='/api/customer/orders'&&request.method==='GET'){
+  const c=await customerSession(request,env);if(!c)return reply({error:'Inicia sesión.'},401);
+  const rows=(await env.DB.prepare(`SELECT o.id,o.public_code,o.created_at,o.status,o.delivered_at,
+   p.expected_total FROM shop_orders o LEFT JOIN shop_order_pricing p ON p.order_id=o.id
+   WHERE o.customer_account_id=? ORDER BY o.created_at DESC LIMIT 50`).bind(c.id).all()).results||[];
+  const orders=[];
+  for(const order of rows){
+   const items=(await env.DB.prepare('SELECT product_id,kind,quantity,product_name,validated_line_total FROM shop_order_commercial_lines WHERE order_id=?').bind(order.id).all()).results||[];
+   orders.push({...order,items});
+  }
+  return reply({orders});
+ }
+ if(path==='/api/customer/benefits'&&request.method==='GET'){
+  const c=await customerSession(request,env);if(!c)return reply({error:'Inicia sesión.'},401);
+  // No atribuir compras previas ni prometer descuentos antes de validar pagos y entregas.
+  return reply({enabled:false,message:'Estamos preparando tus beneficios BRUSAAM. Los cupones todavía no están activos.'});
+ }
  if(path==='/api/customer/logout'&&request.method==='POST'){
   const token=customerCookie(request);
   if(/^[a-zA-Z0-9_-]{43}$/.test(token))await env.DB.prepare('DELETE FROM brusaam_customer_sessions WHERE token_hash=?').bind(await customerSha(token)).run();
@@ -1045,7 +1093,7 @@ async function findAdditionalParent(env,code,body){
  return parent;
 }
 
-async function registerOrder(env, body) {
+async function registerOrder(env, body, request) {
  const id=cleanOrderText(body?.id,80);
  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))return reply({error:'Identificador de pedido inválido.'},400);
  const existing=await env.DB.prepare("SELECT id,status,public_code FROM shop_orders WHERE id=?").bind(id).first();
@@ -1127,7 +1175,13 @@ async function registerOrder(env, body) {
  }
  const now=Date.now();
   const batch=[env.DB.prepare("INSERT INTO shop_orders(id,created_at,expires_at,status,customer,payment_method,delivery_method,address,region,commune,notes,stock_reserved,delivery_sector) VALUES(?,?,0,'pending',?,?,?,?,?,?,?,0,?)").bind(id,now,customer,payment,delivery,address,region,commune,notes,deliverySector)];
-  batch.push(env.DB.prepare('UPDATE shop_orders SET customer_whatsapp=? WHERE id=?').bind(directPhone,id));
+   batch.push(env.DB.prepare('UPDATE shop_orders SET customer_whatsapp=? WHERE id=?').bind(directPhone,id));
+   // La asociación depende exclusivamente de una sesión válida en esta solicitud.
+   if(request && customerCookie(request)){
+    await initCustomerAccounts(env);
+    const signedCustomer=await customerSession(request,env);
+    if(signedCustomer)batch.push(env.DB.prepare('UPDATE shop_orders SET customer_account_id=? WHERE id=?').bind(signedCustomer.id,id));
+   }
   batch.push(env.DB.prepare('UPDATE shop_orders SET order_channel=? WHERE id=?').bind(orderChannel,id));
   batch.push(env.DB.prepare("UPDATE shop_orders SET public_code=printf('%05d',10098+CAST((rowid-1)/26 AS INTEGER))||char(65+((rowid-1)%26)) WHERE id=? AND rowid BETWEEN 1 AND 2337452").bind(id));
   for(const item of items)batch.push(env.DB.prepare("INSERT INTO shop_order_items(order_id,product_id,kind,quantity,stock_units,product_name) VALUES(?,?,?,?,?,?)").bind(id,item.id,item.kind,item.quantity,item.units,item.name));
@@ -2341,6 +2395,12 @@ body.brusaamCatalogLoading{overflow:hidden!important;overscroll-behavior:none}
 body:not(.brusaamCatalogLoading) #brusaamCatalogLoadingStatus{display:none}
 #brusaamAccountForgot{display:block;margin:12px 0 0;background:transparent;border:0;color:#6122b4;text-decoration:underline;padding:5px 0;font-size:14px;cursor:pointer}
 #brusaamAccountResetArea{margin-top:12px;padding:14px;background:#f8f5fc;border-radius:12px}
+.brusaamAccountTabs{display:flex;flex-wrap:wrap;gap:7px;margin:12px 0 18px}
+.brusaamAccountTabs button{flex:1 1 125px;padding:10px 6px}
+.brusaamAccountTabs button[aria-current="page"]{background:#6b22cb;color:#fff}
+#brusaamAccountPanel{overflow-y:auto}
+.brusaamCustomerOrder{border:1px solid #e4dcf2;border-radius:12px;padding:12px;margin:10px 0;background:#fcfaff}
+#brusaamCustomerProfileForm label{display:block;margin:10px 0}
 @media(max-width:650px){#brusaamAccountPanel{padding:18px!important;max-height:calc(100dvh - 18px)!important}}
 </style>
 </head>
@@ -2480,7 +2540,30 @@ const SHOP = String.raw`
    </div>
   </div>
   <div id="brusaamAccountSigned" class="hidden"><p id="brusaamAccountWelcome"></p>
-   <button id="brusaamAccountLogout" type="button" class="secondary">Cerrar sesión</button>
+   <nav class="brusaamAccountTabs" aria-label="Secciones de mi cuenta">
+    <button type="button" class="secondary" data-customer-tab="profile">👤 Mi perfil</button>
+    <button type="button" class="secondary" data-customer-tab="orders">🛒 Mis pedidos</button>
+    <button type="button" class="secondary" data-customer-tab="benefits">🎁 Mis beneficios</button>
+   </nav>
+   <section id="brusaamCustomerProfileTab">
+    <form id="brusaamCustomerProfileForm">
+     <label>Nombre y apellidos<input name="name" autocomplete="name" required maxlength="120"></label>
+     <label>Correo electrónico<input name="email" type="email" readonly></label>
+     <label>WhatsApp<input name="whatsapp" type="tel" autocomplete="tel" maxlength="20"></label>
+     <label>Región<input name="region" maxlength="80"></label>
+     <label>Comuna<input name="commune" maxlength="80"></label>
+     <label>Sector<input name="sector" maxlength="100"></label>
+     <label>Dirección<input name="address" autocomplete="street-address" maxlength="240"></label>
+     <label>Método de pago preferido<select name="payment_method"><option value="">Sin preferencia</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta Débito/Crédito</option></select></label>
+     <label>Entrega preferida<select name="delivery_method"><option value="">Sin preferencia</option><option value="delivery">Despacho</option><option value="pickup">Retiro</option></select></label>
+     <button type="submit">Guardar mis datos</button>
+    </form>
+    <p class="muted">Tus datos quedan guardados en tu cuenta. Antes de enviar un pedido podrás revisar los datos de entrega.</p>
+    <button type="button" id="brusaamCustomerChangePassword" class="secondary">🔐 Cambiar contraseña por correo</button>
+   </section>
+   <section id="brusaamCustomerOrdersTab" class="hidden"><div id="brusaamCustomerOrdersList"></div></section>
+   <section id="brusaamCustomerBenefitsTab" class="hidden"><p id="brusaamCustomerBenefitsText"></p></section>
+   <button id="brusaamAccountLogout" type="button" class="secondary" style="margin-top:16px">Cerrar sesión</button>
   </div>
   <p class="muted" style="font-size:12px">Puedes seguir comprando sin registrarte. Los beneficios de fidelidad se activarán cuando estén implementados y probados.</p>
  </div>
@@ -4646,8 +4729,82 @@ $('brusaamAccountToggle').addEventListener('click',()=>brusaamAccountMode(!brusa
 function brusaamAccountShow(customer){
  $('brusaamAccountGuest').classList.toggle('hidden',!!customer);
  $('brusaamAccountSigned').classList.toggle('hidden',!customer);
- $('brusaamAccountButton').textContent=customer?'👤 Mi cuenta':'👤 Mi cuenta / Registrarme';
- if(customer)$('brusaamAccountWelcome').textContent='¡Hola, '+customer.name+'! Tu cuenta está activa ('+customer.email+').';
+ $('brusaamAccountButton').textContent=customer?'👤 Hola, '+String(customer.name||'').trim().split(/\s+/)[0]:'👤 Mi cuenta / Registrarme';
+ if(customer){$('brusaamAccountWelcome').textContent='¡Hola, '+customer.name+'!';brusaamCustomerTab('profile');brusaamLoadProfile();}
+}
+// Área privada: datos cargados exclusivamente desde la sesión autenticada.
+let brusaamCurrentCustomer=null;
+function brusaamCustomerTab(tab){
+ for(const name of ['profile','orders','benefits']){
+  $('brusaamCustomer'+name[0].toUpperCase()+name.slice(1)+'Tab').classList.toggle('hidden',name!==tab);
+ }
+ document.querySelectorAll('[data-customer-tab]').forEach(b=>b.setAttribute('aria-current',b.dataset.customerTab===tab?'page':'false'));
+ if(tab==='orders')brusaamLoadOrders();
+ if(tab==='benefits')brusaamLoadBenefits();
+}
+document.querySelectorAll('[data-customer-tab]').forEach(b=>b.addEventListener('click',()=>brusaamCustomerTab(b.dataset.customerTab)));
+async function brusaamCustomerGet(path){
+ const r=await fetch(path,{credentials:'same-origin'}),raw=await r.text();let d;
+ try{d=JSON.parse(raw)}catch{throw Error('No se pudo consultar tu cuenta (HTTP '+r.status+').')}
+ if(!r.ok)throw Error(d.error||'No se pudo consultar tu cuenta.');return d;
+}
+async function brusaamLoadProfile(){
+ const f=$('brusaamCustomerProfileForm');
+ try{
+  const d=await brusaamCustomerGet('/api/customer/profile');brusaamCurrentCustomer=d.customer;
+  const values={...d.profile,name:d.customer.name,email:d.customer.email};
+  for(const [key,value] of Object.entries(values)){if(f.elements.namedItem(key))f.elements.namedItem(key).value=value||'';}
+ }catch(e){$('brusaamAccountMessage').textContent=e.message;}
+}
+$('brusaamCustomerChangePassword').addEventListener('click',async()=>{
+ const email=$('brusaamCustomerProfileForm').elements.namedItem('email').value;
+ if(!email)return;
+ const btn=$('brusaamCustomerChangePassword');btn.disabled=true;
+ try{await brusaamCustomerPost('/api/customer/forgot',{email});$('brusaamAccountMessage').textContent='Te enviamos instrucciones para cambiar tu contraseña, si el correo está registrado.';}
+ catch(e){$('brusaamAccountMessage').textContent=e.message}finally{btn.disabled=false}
+});
+$('brusaamCustomerProfileForm').addEventListener('submit',async e=>{
+ e.preventDefault();const f=e.currentTarget,button=f.querySelector('button[type="submit"]');button.disabled=true;
+ try{const body=Object.fromEntries(new FormData(f).entries());const d=await brusaamCustomerPost('/api/customer/profile',body);brusaamCurrentCustomer=d.customer;$('brusaamAccountButton').textContent='👤 Hola, '+d.customer.name.split(/\s+/)[0];$('brusaamAccountWelcome').textContent='¡Hola, '+d.customer.name+'!';$('brusaamAccountMessage').textContent='✓ Datos guardados.';}
+ catch(err){$('brusaamAccountMessage').textContent=err.message}finally{button.disabled=false}
+});
+async function brusaamLoadOrders(){
+ const root=$('brusaamCustomerOrdersList');root.replaceChildren();root.append(node('p','Consultando tus pedidos...'));
+ try{
+  const d=await brusaamCustomerGet('/api/customer/orders');root.replaceChildren();
+  if(!d.orders.length){root.append(node('p','Todavía no tienes pedidos asociados a esta cuenta. Los pedidos anteriores al registro no se vinculan automáticamente por seguridad.'));return;}
+  const statuses={pending:'Pendiente',confirmed:'Confirmado',cancelled:'Cancelado',expired:'Vencido'};
+  for(const o of d.orders){
+   const box=node('article');box.className='brusaamCustomerOrder';
+   box.append(node('strong','Pedido #'+(o.public_code||o.id.slice(0,8))));
+   box.append(node('p',new Date(Number(o.created_at)).toLocaleDateString('es-CL')+' · '+(Number(o.delivered_at)>0?'Entregado':(statuses[o.status]||o.status))));
+   for(const l of o.items)box.append(node('div',l.product_name+' · '+l.quantity+' '+(l.kind==='manga'?'manga(s)':'unidad(es)')));
+   if(o.expected_total!==null&&o.expected_total!==undefined)box.append(node('p','Total registrado: '+money(Number(o.expected_total))));
+   if(o.items.length){const repeat=node('button','🛒 Repetir pedido');repeat.type='button';repeat.className='secondary';
+    repeat.addEventListener('click',()=>{
+     if(!store.products?.length){alert('Espera a que termine de cargar el catálogo.');return;}
+     let added=0,missing=0;
+     for(const l of o.items){const p=store.products.find(x=>Number(x.id)===Number(l.product_id));
+      if(!p||Number(p.active)===0){missing++;continue;}
+      const kind=l.kind==='manga'?'manga':l.kind==='pack'?'pack':'unidad';
+      const units=kind==='manga'?Number(p.packs_per_manga):1;
+      if(!units||!Number.isFinite(units)){missing++;continue;}
+      const available=Math.max(0,Math.floor((Number(p.stock)-stockUsed(p.id))/units));
+      const qty=Math.min(Number(l.quantity),available);
+      if(qty>0){const key=p.id+':'+kind;cart[key]=(cart[key]||0)+qty;added+=qty;}
+      if(qty<Number(l.quantity))missing++;
+     }
+     saveBrusaamCart();document.dispatchEvent(new Event('brusaam:cart-updated'));renderCart();
+     $('brusaamAccountMessage').textContent=added?'✓ Productos disponibles agregados al carrito. Revisa los precios actuales y confirma tu pedido.':'No hay productos disponibles para repetir.';
+     if(missing)$('brusaamAccountMessage').textContent+=' '+missing+' línea(s) sin disponibilidad completa.';
+    });box.append(repeat);}
+   root.append(box);
+  }
+ }catch(e){root.replaceChildren(node('p',e.message))}
+}
+async function brusaamLoadBenefits(){
+ try{const d=await brusaamCustomerGet('/api/customer/benefits');$('brusaamCustomerBenefitsText').textContent=d.message||'Los beneficios aún no están activos.';}
+ catch(e){$('brusaamCustomerBenefitsText').textContent=e.message}
 }
 $('brusaamAccountForm').addEventListener('submit',async event=>{
  event.preventDefault();
@@ -7632,7 +7789,7 @@ export default {
         if (!checkOrigin(request)) return reply({error:'Origen no permitido'},403);
         await initialize(env);
         const body=await request.json().catch(()=>null);
-        return registerOrder(env,body);
+        return registerOrder(env,body,request);
       }
 
       if (!path.startsWith("/api/admin/")) {
