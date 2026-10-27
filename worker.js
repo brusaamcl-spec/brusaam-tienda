@@ -2337,7 +2337,7 @@ body.brusaamCartLocked{overflow:hidden}
 body.brusaamAccountLocked{overflow:hidden}
 /* Portada visible durante la carga inicial: solo tienda pública. */
 body.brusaamCatalogLoading{overflow:hidden!important;overscroll-behavior:none}
-#brusaamCatalogLoadingStatus{position:fixed;z-index:980;bottom:16px;left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);padding:10px 19px;border-radius:30px;background:rgba(255,255,255,.96);color:#52229c;font-weight:700;font-size:14px;box-shadow:0 3px 18px #2b18522b;text-align:center;pointer-events:none}
+#brusaamCatalogLoadingStatus{position:relative;z-index:2;display:table;margin:10px auto 14px;max-width:calc(100vw - 32px);padding:10px 19px;border-radius:30px;background:rgba(255,255,255,.96);color:#52229c;font-weight:700;font-size:14px;box-shadow:0 3px 18px #2b18522b;text-align:center;pointer-events:none}
 body:not(.brusaamCatalogLoading) #brusaamCatalogLoadingStatus{display:none}
 #brusaamAccountForgot{display:block;margin:12px 0 0;background:transparent;border:0;color:#6122b4;text-decoration:underline;padding:5px 0;font-size:14px;cursor:pointer}
 #brusaamAccountResetArea{margin-top:12px;padding:14px;background:#f8f5fc;border-radius:12px}
@@ -2345,9 +2345,9 @@ body:not(.brusaamCatalogLoading) #brusaamCatalogLoadingStatus{display:none}
 </style>
 </head>
 <body${admin ? "" : ' class="brusaamCatalogLoading"'}>
-${admin ? "" : '<div id="brusaamCatalogLoadingStatus" role="status" aria-live="polite">💜 Preparando nuestro catálogo...</div>'}
 <header class="flowerHeader">
 ${floralHeader}
+${admin ? "" : '<div id="brusaamCatalogLoadingStatus" role="status" aria-live="polite">💜 Preparando nuestro catálogo...</div>'}
 <a id="brusaamLogoHomeLink" href="/" aria-label="Volver a la página principal de BRUSAAM" title="Volver al inicio" class="brusaamLogoHomeLink">
 <img id="shopLogo" class="logo"
  src="${BR.logo}"
@@ -4594,6 +4594,11 @@ async function loadShop() {
 /* Cuenta de cliente: registro e ingreso opcionales. */
 let brusaamAccountLoginMode=false;
 const brusaamAccountPanel=$('brusaamAccountPanel');
+// El panel y el fondo deben estar en el mismo contexto de apilamiento.
+// Si el panel permanece dentro del contenedor con z-index:50,
+// el fondo (z-index:1200) lo tapa y lo desenfoca.
+document.body.appendChild($('brusaamAccountShade'));
+document.body.appendChild(brusaamAccountPanel);
 function brusaamAccountOpen(){
  brusaamAccountPanel.classList.remove('hidden');$('brusaamAccountShade').classList.remove('hidden');document.body.classList.add('brusaamAccountLocked');brusaamAccountPanel.focus();
 }
