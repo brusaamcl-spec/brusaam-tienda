@@ -267,6 +267,7 @@ async function initializeSchema(env) {
     ["manga_price", "INTEGER NOT NULL DEFAULT 0"],
     ["packs_per_manga", "INTEGER NOT NULL DEFAULT 0"],
     ["pack_eligible", "INTEGER NOT NULL DEFAULT 0"],
+    ["new_image", "INTEGER NOT NULL DEFAULT 0"],
     ["wholesale_group", "TEXT NOT NULL DEFAULT ''"]
   ];
 
@@ -2132,6 +2133,10 @@ footer .contactInfo {
 /* Cinta diagonal compacta: anclada al borde superior izquierdo, sin cubrir el centro de la fotografía. */
 .brusaamOfferCorner{position:absolute;top:0;left:0;z-index:2;width:77px;height:77px;overflow:hidden;pointer-events:none;background:transparent!important;clip-path:none!important;filter:none!important;padding:0!important;min-width:0!important;min-height:0!important;display:block!important}
 .brusaamOfferCorner strong{position:absolute;top:15px;left:-23px;width:105px;padding:3px 0;transform:rotate(-45deg);background:#e02028;color:#fff!important;font-size:10px!important;font-weight:900;letter-spacing:.5px;text-align:center;line-height:1.1;box-shadow:0 2px 4px #0002}
+/* Cinta azul en esquina superior derecha, independiente de OFERTA. */
+.brusaamNewImageCorner{position:absolute;top:0;right:0;z-index:3;width:105px;height:105px;overflow:hidden;pointer-events:none}
+.brusaamNewImageCorner strong{position:absolute;top:23px;right:-31px;width:146px;padding:5px 0;transform:rotate(45deg);background:#1689c8;color:#fff;font-size:10px;font-weight:900;letter-spacing:.2px;text-align:center;box-shadow:0 2px 6px #0003}
+@media(max-width:600px){.brusaamNewImageCorner{width:84px;height:84px}.brusaamNewImageCorner strong{top:18px;right:-34px;width:130px;font-size:9px;padding:4px 0}}
 .brusaamPriceOfferRow{display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap}
 .brusaamPriceOfferRow .price{margin:0}
 .brusaamPriceOfferRow .brusaamDiscountBadge{margin:0;white-space:nowrap}
@@ -3095,6 +3100,10 @@ function productCard(product) {
     corner.append(title);
     frame.append(corner);
    }
+  }
+  if(Number(product.new_image)===1){
+   const label=node("span");label.className="brusaamNewImageCorner";
+   label.append(node("strong","NUEVA IMAGEN"));frame.append(label);
   }
   card.append(frame);
  } else {
@@ -4675,6 +4684,7 @@ const ADMIN = String.raw`
      <input id="pNew" type="checkbox">
      Nuevos Ingresos
     </label>
+    <label class="checkLabel"><input id="pNewImage" type="checkbox"> Nueva Imagen (etiqueta azul en fotografía)</label>
 
     <input id="pSpecialOnly" type="hidden" value="0">
     <label class="checkLabel">
@@ -5251,6 +5261,7 @@ function clearProduct() {
  $('pSpecialOnly').value = '0';
  $('pPacksPerManga').value = '0';
  $('pActive').checked = true;
+ $('pNewImage').checked = false;
  $('pPackEligible').checked = false;
 
  $('pCostVat').value = '0';
@@ -5289,6 +5300,7 @@ function fillProductForm(product) {
  $('pFeatured').checked=!!product.destacados;
  $('pOffers').checked=!!product.ofertas;
  $('pNew').checked=!!product.nuevos_ingresos;
+ $('pNewImage').checked=Number(product.new_image)===1;
  $('pActive').checked=!!product.active;
  $('pPackEligible').checked=Number(product.pack_eligible)!==0;
  updateFinancePreview();
@@ -5424,6 +5436,7 @@ $('productForm').onsubmit = async event => {
   ofertas: $('pOffers').checked,
   box_pyme: Boolean(data.products.find(x=>String(x.id)===$('pId').value)?.box_pyme),
   nuevos_ingresos: $('pNew').checked,
+  new_image: $('pNewImage').checked,
   active: $('pActive').checked
  };
 
@@ -8063,11 +8076,11 @@ export default {
            min_qty,stock,image,active,
            destacados,pack_ahorro,
            ofertas,box_pyme,
-           manga_price,packs_per_manga,offer_price,offer_manga_price,nuevos_ingresos,special_only,pack_eligible,wholesale_group
+           manga_price,packs_per_manga,offer_price,offer_manga_price,nuevos_ingresos,special_only,pack_eligible,wholesale_group,new_image
           )
           VALUES(
            ?,?,?,?,?,?,?,?,?,?,
-           ?,?,?,?,?,?,?,?,?,?,?,?
+           ?,?,?,?,?,?,?,?,?,?,?,?,?
           )
         `).bind(
           product.name.trim(),
@@ -8091,7 +8104,8 @@ export default {
           product.nuevos_ingresos ? 1 : 0,
           product.special_only ? 1 : 0,
           product.pack_eligible === true ? 1 : 0,
-          (product.wholesale_group || "").trim()
+          (product.wholesale_group || "").trim(),
+          product.new_image === true ? 1 : 0
         ).run();
 
         await env.DB.prepare('INSERT INTO shop_product_finances(product_id,cost_with_vat,operating_percent) VALUES(?,?,?) ON CONFLICT(product_id) DO UPDATE SET cost_with_vat=excluded.cost_with_vat,operating_percent=excluded.operating_percent').bind(result.meta.last_row_id,product.cost_with_vat||0,product.operating_percent??20).run();
@@ -8145,7 +8159,8 @@ export default {
            nuevos_ingresos=?,
            special_only=?,
            pack_eligible=?,
-           wholesale_group=?
+           wholesale_group=?,
+           new_image=?
           WHERE id=?
         `).bind(
           product.name.trim(),
@@ -8170,6 +8185,7 @@ export default {
           product.special_only ? 1 : 0,
           product.pack_eligible === false ? 0 : 1,
           (product.wholesale_group || "").trim(),
+          product.new_image === true ? 1 : 0,
           Number(productId[1])
         ).run();
 
