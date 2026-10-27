@@ -637,6 +637,7 @@ function initCustomerAccounts(env){
    created_at INTEGER NOT NULL
   )`).run();
   await env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_brusaam_customer_sessions_customer ON brusaam_customer_sessions(customer_id)').run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customer_password_resets (token_hash TEXT PRIMARY KEY,customer_id TEXT NOT NULL,expires_at INTEGER NOT NULL,used_at INTEGER NOT NULL DEFAULT 0)`).run();
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS brusaam_customer_login_attempts (
    email TEXT PRIMARY KEY, failures INTEGER NOT NULL DEFAULT 0, until_ms INTEGER NOT NULL DEFAULT 0
   )`).run();
@@ -683,6 +684,35 @@ async function customerApi(request,env,path){
   if(/^[a-zA-Z0-9_-]{43}$/.test(token))await env.DB.prepare('DELETE FROM brusaam_customer_sessions WHERE token_hash=?').bind(await customerSha(token)).run();
   return reply({ok:true},200,{'Set-Cookie':customerSetCookie(request,'',0)});
  }
+ if(path==='/api/customer/forgot'&&request.method==='POST'){
+  let body;try{body=await request.json()}catch{return reply({error:'Solicitud inválida.'},400)}
+  const email=String(body?.email||'').trim().toLowerCase();
+  if(email.length>254||!email.includes('@'))return reply({error:'Ingresa un correo válido.'},400);
+  const row=await env.DB.prepare('SELECT id,name,email FROM brusaam_customers WHERE email=?').bind(email).first();
+  if(row){
+   if(!env.RESEND_API_KEY)return reply({error:'La recuperación por correo aún no está configurada.'},503);
+   const token=customerRandom(),hash=await customerSha(token),now=Date.now();
+   await env.DB.prepare('DELETE FROM brusaam_customer_password_resets WHERE customer_id=?').bind(row.id).run();
+   await env.DB.prepare('INSERT INTO brusaam_customer_password_resets(token_hash,customer_id,expires_at) VALUES(?,?,?)').bind(hash,row.id,now+30*60*1000).run();
+   const url=new URL(request.url);const link=url.origin+'/?reset='+encodeURIComponent(token);
+   const sent=await fetch('https://api.resend.com/emails',{method:'POST',headers:{'Authorization':'Bearer '+env.RESEND_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({from:'BRUSAAM <notificaciones@brusaam.com>',to:[row.email],subject:'BRUSAAM: recupera tu contraseña',text:'Solicitaste recuperar tu contraseña de BRUSAAM. Abre este enlace (válido por 30 minutos): '+link+'\nSi no solicitaste el cambio, ignora este mensaje.'})});
+   if(!sent.ok){console.error('Resend password reset failed',sent.status);return reply({error:'No pudimos enviar el correo de recuperación. Intenta nuevamente.'},502)}
+  }
+  return reply({ok:true});
+ }
+ if(path==='/api/customer/reset'&&request.method==='POST'){
+  let body;try{body=await request.json()}catch{return reply({error:'Solicitud inválida.'},400)}
+  const token=String(body?.token||''),password=body?.password;
+  if(!/^[A-Za-z0-9_-]{43}$/.test(token)||typeof password!=='string'||password.length<10||password.length>128)return reply({error:'Enlace o contraseña inválidos.'},400);
+  const hash=await customerSha(token),now=Date.now();
+  const record=await env.DB.prepare('SELECT customer_id FROM brusaam_customer_password_resets WHERE token_hash=? AND used_at=0 AND expires_at>?').bind(hash,now).first();
+  if(!record)return reply({error:'Este enlace ya se utilizó o venció. Solicita uno nuevo.'},400);
+  const salt=customerRandom(),passwordHash=await customerPassword(password,salt);
+  const used=await env.DB.prepare('UPDATE brusaam_customer_password_resets SET used_at=? WHERE token_hash=? AND used_at=0 AND expires_at>?').bind(now,hash,now).run();
+  if(Number(used.meta?.changes||0)!==1)return reply({error:'El enlace ya fue utilizado.'},409);
+  await env.DB.batch([env.DB.prepare('UPDATE brusaam_customers SET password_salt=?,password_hash=?,updated_at=? WHERE id=?').bind(salt,passwordHash,now,record.customer_id),env.DB.prepare('DELETE FROM brusaam_customer_sessions WHERE customer_id=?').bind(record.customer_id)]);
+  return reply({ok:true});
+ }
  if(!['/api/customer/register','/api/customer/login'].includes(path)||request.method!=='POST')return reply({error:'Ruta no disponible.'},404);
  const length=Number(request.headers.get('content-length')||0);
  if(length>4000)return reply({error:'Solicitud demasiado grande.'},413);
@@ -693,7 +723,7 @@ async function customerApi(request,env,path){
   return reply({error:'Ingresa un correo válido y una contraseña de 10 a 128 caracteres.'},400);
  if(path==='/api/customer/register'){
   const name=String(body?.name||'').trim().replace(/\s+/g,' ');
-  if(name.length<2||name.length>120)return reply({error:'Ingresa tu nombre (2 a 120 caracteres).'},400);
+  if(name.length<2||name.length>120)return reply({error:'Ingresa tu nombre y apellidos (2 a 120 caracteres).'},400);
   const salt=customerRandom(),hash=await customerPassword(password,salt),id=crypto.randomUUID(),now=Date.now();
   try{await env.DB.prepare('INSERT INTO brusaam_customers(id,email,name,password_salt,password_hash,created_at,updated_at) VALUES(?,?,?,?,?,?,?)').bind(id,email,name,salt,hash,now,now).run()}
   catch(e){if(/unique|constraint/i.test(String(e)))return reply({error:'Este correo ya está registrado. Inicia sesión.'},409);throw e}
@@ -2293,6 +2323,21 @@ footer .contactInfo {
 .brusaamCartHead button{padding:8px 12px}
 body.brusaamCartLocked{overflow:hidden}
 @media(max-width:520px){.brusaamCartFloat{right:12px;bottom:12px}.brusaamCartDock{padding:9px}.brusaamCartDock .panel{padding:12px}}
+/* Cuenta accesible en la esquina superior derecha, sin desplazar el catálogo. */
+#brusaamCustomerArea{position:absolute;top:105px;right:24px;z-index:50;width:min(460px,calc(100% - 32px));text-align:right}
+#brusaamAccountButton{font-size:14px;padding:10px 14px;box-shadow:0 3px 12px rgba(0,0,0,.09)}
+#brusaamAccountPanel{text-align:left;max-height:calc(100vh - 165px);overflow:auto;margin-top:8px;box-shadow:0 10px 28px rgba(0,0,0,.15)}
+@media(max-width:650px){#brusaamCustomerArea{top:65px;right:10px;width:min(370px,calc(100% - 20px))}#brusaamAccountButton{font-size:12px;padding:8px 10px}#brusaamAccountPanel{max-height:calc(100vh - 110px)}}
+
+/* Cuenta a pantalla completa: fondo de la tienda visible pero atenuado. */
+#brusaamAccountShade{position:fixed;inset:0;z-index:1200;background:rgba(14,22,48,.63);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)}
+#brusaamAccountPanel{position:fixed!important;z-index:1201;top:50%;left:50%;right:auto;transform:translate(-50%,-50%);width:min(540px,calc(100vw - 28px));max-width:none!important;max-height:calc(100dvh - 30px)!important;overflow-y:auto;margin:0!important;padding:26px!important;background:#fff!important;border-radius:20px;box-shadow:0 20px 75px rgba(0,0,0,.35);text-align:left}
+#brusaamAccountPanel h2{padding-right:44px}
+#brusaamAccountClose{position:absolute;right:16px;top:13px;min-width:40px;min-height:40px;border-radius:50%;background:#f2edfa;color:#2d1953;font-size:25px;padding:0;cursor:pointer}
+body.brusaamAccountLocked{overflow:hidden}
+#brusaamAccountForgot{display:block;margin:12px 0 0;background:transparent;border:0;color:#6122b4;text-decoration:underline;padding:5px 0;font-size:14px;cursor:pointer}
+#brusaamAccountResetArea{margin-top:12px;padding:14px;background:#f8f5fc;border-radius:12px}
+@media(max-width:650px){#brusaamAccountPanel{padding:18px!important;max-height:calc(100dvh - 18px)!important}}
 </style>
 </head>
 <body>
@@ -2406,22 +2451,28 @@ ${floralFooter}
 /* CONTENIDO DE LA TIENDA */
 
 const SHOP = String.raw`
-<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM</h1>
-
-<section id="brusaamCustomerArea" style="margin:12px auto;max-width:1100px;padding:0 12px">
- <button type="button" id="brusaamAccountButton" class="secondary" style="float:right">👤 Mi cuenta / Registrarme</button>
- <div style="clear:both"></div>
- <div id="brusaamAccountPanel" class="panel hidden" style="max-width:460px;margin:12px 0 14px auto">
-  <h2>💜 Mi cuenta BRUSAAM</h2>
+<div id="brusaamAccountShade" class="hidden" aria-hidden="true"></div>
+<section id="brusaamCustomerArea">
+ <button type="button" id="brusaamAccountButton" class="secondary">👤 Mi cuenta / Registrarme</button>
+ <div id="brusaamAccountPanel" class="panel hidden" role="dialog" aria-modal="true" aria-labelledby="brusaamAccountTitle" tabindex="-1">
+  <button type="button" id="brusaamAccountClose" aria-label="Cerrar ventana">×</button>
+  <h2 id="brusaamAccountTitle">💜 Mi cuenta BRUSAAM</h2>
   <p id="brusaamAccountMessage" role="status" aria-live="polite"></p>
   <div id="brusaamAccountGuest">
    <form id="brusaamAccountForm">
-    <label id="brusaamAccountNameLabel">Nombre completo<input id="brusaamAccountName" autocomplete="name" maxlength="120"></label>
+    <label id="brusaamAccountNameLabel">Nombre y apellidos<input id="brusaamAccountName" autocomplete="name" maxlength="120"></label>
     <label>Correo electrónico<input id="brusaamAccountEmail" type="email" autocomplete="email" required maxlength="254"></label>
     <label>Contraseña<input id="brusaamAccountPassword" type="password" autocomplete="new-password" minlength="10" maxlength="128" required></label>
     <button id="brusaamAccountSubmit" type="submit">Crear cuenta gratis</button>
    </form>
    <button id="brusaamAccountToggle" type="button" class="secondary" style="margin-top:8px">Ya tengo cuenta: Iniciar sesión</button>
+   <button id="brusaamAccountForgot" class="hidden" type="button">¿Olvidaste tu contraseña?</button>
+   <div id="brusaamAccountResetArea" class="hidden">
+    <p><strong>Recuperar contraseña</strong></p>
+    <form id="brusaamAccountResetRequestForm"><label>Correo electrónico<input id="brusaamAccountResetEmail" type="email" required autocomplete="email" maxlength="254"></label><button type="submit">Enviar enlace de recuperación</button></form>
+    <form id="brusaamAccountResetFinishForm" class="hidden"><label>Nueva contraseña<input id="brusaamAccountResetPassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" required></label><button type="submit">Guardar nueva contraseña</button></form>
+    <button type="button" id="brusaamAccountResetBack" class="secondary">Volver a iniciar sesión</button>
+   </div>
   </div>
   <div id="brusaamAccountSigned" class="hidden"><p id="brusaamAccountWelcome"></p>
    <button id="brusaamAccountLogout" type="button" class="secondary">Cerrar sesión</button>
@@ -2429,6 +2480,8 @@ const SHOP = String.raw`
   <p class="muted" style="font-size:12px">Puedes seguir comprando sin registrarte. Los beneficios de fidelidad se activarán cuando estén implementados y probados.</p>
  </div>
 </section>
+
+<h1 class="welcome elegantCatalog">BIENVENIDOS A BRUSAAM</h1>
 
 <div id="promoGallerySlot" class="brusaamPromoGallery brusaamPromoPlaceholder brusaamTopGallery" aria-label="Espacio publicitario BRUSAAM">📷 Espacio publicitario Brusaam</div>
 
@@ -4532,7 +4585,40 @@ async function loadShop() {
 /* Cuenta de cliente: registro e ingreso opcionales. */
 let brusaamAccountLoginMode=false;
 const brusaamAccountPanel=$('brusaamAccountPanel');
-$('brusaamAccountButton').addEventListener('click',()=>brusaamAccountPanel.classList.toggle('hidden'));
+function brusaamAccountOpen(){
+ brusaamAccountPanel.classList.remove('hidden');$('brusaamAccountShade').classList.remove('hidden');document.body.classList.add('brusaamAccountLocked');brusaamAccountPanel.focus();
+}
+function brusaamAccountClose(){brusaamAccountPanel.classList.add('hidden');$('brusaamAccountShade').classList.add('hidden');document.body.classList.remove('brusaamAccountLocked');$('brusaamAccountButton').focus();}
+$('brusaamAccountButton').addEventListener('click',brusaamAccountOpen);
+$('brusaamAccountClose').addEventListener('click',brusaamAccountClose);
+$('brusaamAccountShade').addEventListener('click',brusaamAccountClose);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!brusaamAccountPanel.classList.contains('hidden'))brusaamAccountClose();});
+$('brusaamAccountForgot').addEventListener('click',()=>{
+ $('brusaamAccountResetArea').classList.remove('hidden');$('brusaamAccountForm').classList.add('hidden');$('brusaamAccountToggle').classList.add('hidden');$('brusaamAccountForgot').classList.add('hidden');$('brusaamAccountResetEmail').value=$('brusaamAccountEmail').value;
+});
+function brusaamResetBack(){
+ $('brusaamAccountResetArea').classList.add('hidden');$('brusaamAccountForm').classList.remove('hidden');$('brusaamAccountToggle').classList.remove('hidden');$('brusaamAccountForgot').classList.remove('hidden');brusaamAccountMode(true);
+}
+$('brusaamAccountResetBack').addEventListener('click',brusaamResetBack);
+async function brusaamCustomerPost(path,body){
+ const r=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+ const raw=await r.text();let data;try{data=JSON.parse(raw)}catch{throw Error('El servidor no respondió correctamente (HTTP '+r.status+').')}
+ if(!r.ok)throw Error(data.error||'No se pudo completar la solicitud.');return data;
+}
+$('brusaamAccountResetRequestForm').addEventListener('submit',async e=>{
+ e.preventDefault();const msg=$('brusaamAccountMessage');msg.textContent='Enviando...';
+ try{await brusaamCustomerPost('/api/customer/forgot',{email:$('brusaamAccountResetEmail').value});msg.textContent='Si el correo está registrado, recibirás un enlace para cambiar tu contraseña.';}
+ catch(err){msg.textContent=err.message}
+});
+$('brusaamAccountResetFinishForm').addEventListener('submit',async e=>{
+ e.preventDefault();const msg=$('brusaamAccountMessage');msg.textContent='Actualizando...';
+ try{await brusaamCustomerPost('/api/customer/reset',{token:new URLSearchParams(location.search).get('reset'),password:$('brusaamAccountResetPassword').value});history.replaceState(null,'',location.pathname);brusaamResetBack();msg.textContent='Contraseña actualizada. Ya puedes iniciar sesión.';}
+ catch(err){msg.textContent=err.message}
+});
+if(new URLSearchParams(location.search).has('reset')){
+ brusaamAccountOpen();$('brusaamAccountResetArea').classList.remove('hidden');$('brusaamAccountForm').classList.add('hidden');$('brusaamAccountToggle').classList.add('hidden');$('brusaamAccountForgot').classList.add('hidden');$('brusaamAccountResetRequestForm').classList.add('hidden');$('brusaamAccountResetFinishForm').classList.remove('hidden');
+}
+
 function brusaamAccountMode(login){
  brusaamAccountLoginMode=login;
  $('brusaamAccountNameLabel').classList.toggle('hidden',login);
@@ -4540,6 +4626,7 @@ function brusaamAccountMode(login){
  $('brusaamAccountSubmit').textContent=login?'Iniciar sesión':'Crear cuenta gratis';
  $('brusaamAccountToggle').textContent=login?'¿No tienes cuenta? Regístrate gratis':'Ya tengo cuenta: Iniciar sesión';
  $('brusaamAccountMessage').textContent='';
+ $('brusaamAccountForgot').classList.toggle('hidden',!login);
 }
 $('brusaamAccountToggle').addEventListener('click',()=>brusaamAccountMode(!brusaamAccountLoginMode));
 function brusaamAccountShow(customer){
@@ -4557,7 +4644,11 @@ $('brusaamAccountForm').addEventListener('submit',async event=>{
    method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
    body:JSON.stringify({name:$('brusaamAccountName').value,email:$('brusaamAccountEmail').value,password:$('brusaamAccountPassword').value})
   });
-  const data=await res.json();if(!res.ok)throw Error(data.error||'No se pudo completar la solicitud.');
+  const raw=await res.text();let data;
+  try{data=JSON.parse(raw)}catch{
+   throw Error('El servidor respondió con una página HTML en lugar de los datos de registro (HTTP '+res.status+'). Verifica que el código nuevo esté publicado en brusaam-tienda y revisa los registros del Worker.');
+  }
+  if(!res.ok)throw Error(data.error||'No se pudo completar la solicitud (HTTP '+res.status+').');
   $('brusaamAccountPassword').value='';brusaamAccountShow(data.customer);
   msg.textContent='✓ Cuenta activa.';
  }catch(e){msg.textContent=e.message}
