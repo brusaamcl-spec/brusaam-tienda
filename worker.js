@@ -3072,6 +3072,7 @@ function addToCart(id, kind, quantity) {
  const key = id + ':' + kind;
 
  cart[key] = (cart[key] || 0) + quantity;
+ document.dispatchEvent(new Event('brusaam:cart-updated'));
  saveBrusaamCart(); // Guardar inmediatamente al agregar, antes de actualizar la interfaz.
  renderCart();
  const toast=$('addedToast');
@@ -3349,9 +3350,18 @@ function productCard(product) {
   card.append(promo);
  }
 
+ // Aviso público: únicamente cuando quedan una o dos unidades físicas.
+ // Para mangas se expresa en paquetes/unidades disponibles, no en mangas.
+ const lowStockNotice = node('div');
+ lowStockNotice.className = 'brusaamLowStockNotice';
+ lowStockNotice.style.cssText = 'font-size:13px;font-weight:700;color:#b45309;margin:5px 0;text-align:center';
+ card.append(lowStockNotice);
  const add = node('button', '🛒 Agregar');
  const updateAvailability = () => {
   const available = maxQty();
+  const physicalRemaining = Math.max(0, Number(product.stock) - stockUsed(product.id));
+  lowStockNotice.textContent = physicalRemaining === 1 ? '⚠️ Última unidad disponible' : physicalRemaining === 2 ? '⚠️ Últimas 2 unidades' : '';
+  lowStockNotice.style.display = physicalRemaining === 1 || physicalRemaining === 2 ? '' : 'none';
   add.disabled = available < 1;
   add.textContent = available < 1 ? 'AGOTADO' : '🛒 Agregar';
   qtyMinus.disabled = available < 1 || Number(quantity.value) <= 1;
@@ -3372,6 +3382,15 @@ function productCard(product) {
  };
 
  card.append(qtyControls, add);
+ // Refrescar el aviso y los límites cuando cambia el carrito sin recargar la página.
+ const refreshStockCard = () => {
+  if (!card.isConnected) {
+   document.removeEventListener('brusaam:cart-updated', refreshStockCard);
+   return;
+  }
+  clampQty(quantity.value);
+ };
+ document.addEventListener('brusaam:cart-updated', refreshStockCard);
  clampQty(1);
  updateAvailability();
 
@@ -3878,6 +3897,7 @@ function renderCart() {
    }
 
    saveBrusaamCart();
+   document.dispatchEvent(new Event('brusaam:cart-updated'));
    renderCart();
   };
 
@@ -3906,6 +3926,7 @@ function renderCart() {
   remove.onclick = () => {
    delete cart[key];
    saveBrusaamCart();
+   document.dispatchEvent(new Event('brusaam:cart-updated'));
    renderCart();
   };
 
