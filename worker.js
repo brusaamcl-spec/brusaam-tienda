@@ -642,6 +642,8 @@ function initCustomerAccounts(env){
     commune TEXT NOT NULL DEFAULT '', sector TEXT NOT NULL DEFAULT '', address TEXT NOT NULL DEFAULT '',
     payment_method TEXT NOT NULL DEFAULT '', delivery_method TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL DEFAULT 0
   )`).run();
+  try{await env.DB.prepare("ALTER TABLE brusaam_customer_profiles ADD COLUMN maps_link TEXT NOT NULL DEFAULT ''").run();}
+  catch(e){if(!/duplicate column/i.test(String(e)))throw e;}
   // Asociar pedidos nuevos a la cuenta autenticada, sin inferir propiedad por nombre o teléfono.
   try{await env.DB.prepare("ALTER TABLE shop_orders ADD COLUMN customer_account_id TEXT NOT NULL DEFAULT ''").run();}
   catch(e){if(!/duplicate column/i.test(String(e)))throw e;}
@@ -690,7 +692,7 @@ async function customerApi(request,env,path){
  if(path==='/api/customer/me'&&request.method==='GET')return reply({customer:await customerSession(request,env)});
  if(path==='/api/customer/profile'&&request.method==='GET'){
   const c=await customerSession(request,env);if(!c)return reply({error:'Inicia sesión.'},401);
-  const row=await env.DB.prepare('SELECT whatsapp,region,commune,sector,address,payment_method,delivery_method FROM brusaam_customer_profiles WHERE customer_id=?').bind(c.id).first();
+  const row=await env.DB.prepare('SELECT whatsapp,region,commune,sector,address,payment_method,delivery_method,maps_link FROM brusaam_customer_profiles WHERE customer_id=?').bind(c.id).first();
   return reply({customer:c,profile:row||{}});
  }
  if(path==='/api/customer/profile'&&request.method==='POST'){
@@ -700,13 +702,15 @@ async function customerApi(request,env,path){
   if(name.length<2)return reply({error:'Ingresa nombre y apellidos.'},400);
   const whatsapp=String(b?.whatsapp||'').replace(/[^0-9+]/g,'').slice(0,20);
   const region=cleanOrderText(b?.region,80),commune=cleanOrderText(b?.commune,80),sector=cleanOrderText(b?.sector,100),address=cleanOrderText(b?.address,240);
+  const mapsLink=String(b?.maps_link||'').trim().slice(0,240);
+  if(mapsLink&&!/^https:\/\/www\.google\.com\/maps\?q=-?\d{1,2}\.\d{1,6},-?\d{1,3}\.\d{1,6}$/.test(mapsLink))return reply({error:'Enlace GPS inválido.'},400);
   const payment=String(b?.payment_method||''),delivery=String(b?.delivery_method||'');
   if(!['','Efectivo','Transferencia','Tarjeta Débito/Crédito'].includes(payment)||!['','pickup','delivery'].includes(delivery))return reply({error:'Preferencia inválida.'},400);
   await env.DB.batch([
    env.DB.prepare('UPDATE brusaam_customers SET name=?,updated_at=? WHERE id=?').bind(name,Date.now(),c.id),
-   env.DB.prepare(`INSERT INTO brusaam_customer_profiles(customer_id,whatsapp,region,commune,sector,address,payment_method,delivery_method,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(customer_id) DO UPDATE SET whatsapp=excluded.whatsapp,region=excluded.region,commune=excluded.commune,sector=excluded.sector,address=excluded.address,payment_method=excluded.payment_method,delivery_method=excluded.delivery_method,updated_at=excluded.updated_at`)
-    .bind(c.id,whatsapp,region,commune,sector,address,payment,delivery,Date.now())
+   env.DB.prepare(`INSERT INTO brusaam_customer_profiles(customer_id,whatsapp,region,commune,sector,address,payment_method,delivery_method,maps_link,updated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(customer_id) DO UPDATE SET whatsapp=excluded.whatsapp,region=excluded.region,commune=excluded.commune,sector=excluded.sector,address=excluded.address,payment_method=excluded.payment_method,delivery_method=excluded.delivery_method,maps_link=excluded.maps_link,updated_at=excluded.updated_at`)
+    .bind(c.id,whatsapp,region,commune,sector,address,payment,delivery,mapsLink,Date.now())
   ]);
   return reply({ok:true,customer:{...c,name}});
  }
@@ -2562,11 +2566,12 @@ const SHOP = String.raw`
     <form id="brusaamCustomerProfileForm">
      <label>Nombre y apellidos<input name="name" autocomplete="name" required maxlength="120"></label>
      <label>Correo electrónico<input name="email" type="email" readonly></label>
-     <label>WhatsApp<input name="whatsapp" type="tel" autocomplete="tel" maxlength="20"></label>
-     <label>Región<input name="region" maxlength="80"></label>
-     <label>Comuna<input name="commune" maxlength="80"></label>
-     <label>Sector<input name="sector" maxlength="100"></label>
-     <label>Dirección<input name="address" autocomplete="street-address" maxlength="240"></label>
+     <label>Teléfono de contacto<input name="whatsapp" type="tel" autocomplete="tel" maxlength="20" placeholder="Ej.: +56 9 1234 5678"></label>
+     <label>Región<select name="region" id="brusaamProfileRegion"><option value="">Selecciona tu región</option></select></label>
+     <label>Comuna<select name="commune" id="brusaamProfileCommune"><option value="">Selecciona primero tu región</option></select></label>
+     <label>Sector<select name="sector" id="brusaamProfileSector"><option value="">Selecciona primero tu comuna</option></select></label>
+     <label>Dirección<input name="address" autocomplete="street-address" maxlength="240" placeholder="Calle y número"></label>
+     <div class="brusaamMapLocation"><button type="button" class="secondary" id="brusaamProfileGpsButton">📍 Usar mi ubicación GPS (opcional)</button><p class="muted" id="brusaamProfileGpsStatus">Puedes guardar tu ubicación si lo deseas. Solo se solicita al presionar el botón.</p><input type="hidden" name="maps_link" id="brusaamProfileMapsLink"></div>
      <label>Método de pago preferido<select name="payment_method"><option value="">Sin preferencia</option><option>Efectivo</option><option>Transferencia</option><option>Tarjeta Débito/Crédito</option></select></label>
      <label>Entrega preferida<select name="delivery_method"><option value="">Sin preferencia</option><option value="delivery">Despacho</option><option value="pickup">Retiro</option></select></label>
      <button type="submit">Guardar mis datos</button>
@@ -4761,12 +4766,56 @@ async function brusaamCustomerGet(path){
  try{d=JSON.parse(raw)}catch{throw Error('No se pudo consultar tu cuenta (HTTP '+r.status+').')}
  if(!r.ok)throw Error(d.error||'No se pudo consultar tu cuenta.');return d;
 }
+// Compartir las mismas regiones, comunas y sectores del formulario de solicitud.
+function brusaamProfileSelectOptions(select,items,placeholder){
+ const previous=select.value;
+ select.replaceChildren(new Option(placeholder,''));
+ for(const [value,label] of items)select.add(new Option(label,value));
+ if([...select.options].some(o=>o.value===previous))select.value=previous;
+}
+function brusaamProfileUpdateCommunes(value=''){
+ const region=$('brusaamProfileRegion').value;
+ const names=BRUSAAM_CHILE_COMUNAS[region]||[];
+ brusaamProfileSelectOptions($('brusaamProfileCommune'),names.map(x=>[x,x]),region?'Selecciona tu comuna':'Selecciona primero tu región');
+ if(value&&![...$('brusaamProfileCommune').options].some(o=>o.value===value))$('brusaamProfileCommune').add(new Option(value,value));
+ if(value)$('brusaamProfileCommune').value=value;
+ brusaamProfileUpdateSectors();
+}
+function brusaamProfileUpdateSectors(value=''){
+ const region=normalized($('brusaamProfileRegion').value),commune=normalized($('brusaamProfileCommune').value);
+ const opts=region==='coquimbo'&&commune==='la serena'?
+ [['serena_general','La Serena – sector general'],['companias','Las Compañías y alrededores'],['caleta','Caleta San Pedro / Islón / Lambert / Romeral']]:
+ region==='coquimbo'&&commune==='coquimbo'?
+ [['coquimbo_general','Coquimbo – sector general'],['panul','El Panul / La Rinconada'],['pan_azucar','Pan de Azúcar (excepto Cruz de Caña)'],['cruz_cana','Cruz de Caña']]:[];
+ for(const item of store.shippingSettings?.customSectors||[])if(item.enabled&&item.commune===commune&&region==='coquimbo')opts.push([item.id,item.name]);
+ brusaamProfileSelectOptions($('brusaamProfileSector'),opts,opts.length?'Selecciona tu sector':'Sector no requerido');
+ if(value&&![...$('brusaamProfileSector').options].some(o=>o.value===value))$('brusaamProfileSector').add(new Option(value,value));
+ if(value)$('brusaamProfileSector').value=value;
+}
+for(const opt of $('region').options)if(opt.value)$('brusaamProfileRegion').add(new Option(opt.textContent,opt.value));
+$('brusaamProfileRegion').addEventListener('change',()=>brusaamProfileUpdateCommunes());
+$('brusaamProfileCommune').addEventListener('change',()=>brusaamProfileUpdateSectors());
+$('brusaamProfileGpsButton').addEventListener('click',()=>{
+ const status=$('brusaamProfileGpsStatus');
+ if(!navigator.geolocation){status.textContent='GPS no disponible. Puedes ingresar la dirección manualmente.';return;}
+ status.textContent='Solicitando permiso para acceder a tu ubicación…';
+ navigator.geolocation.getCurrentPosition(pos=>{
+  const {latitude,longitude}=pos.coords;
+  if(!Number.isFinite(latitude)||!Number.isFinite(longitude)){status.textContent='No se pudo obtener la ubicación.';return;}
+  $('brusaamProfileMapsLink').value='https://www.google.com/maps?q='+latitude.toFixed(6)+','+longitude.toFixed(6);
+  status.textContent='✓ Ubicación guardada en el formulario. Presiona «Guardar mis datos» para conservarla en tu cuenta.';
+ },err=>{status.textContent=err.code===1?'Permiso denegado. Puedes continuar sin GPS.':'No se pudo obtener tu ubicación. Puedes continuar sin GPS.';},{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+});
 async function brusaamLoadProfile(){
  const f=$('brusaamCustomerProfileForm');
  try{
   const d=await brusaamCustomerGet('/api/customer/profile');brusaamCurrentCustomer=d.customer;
   const values={...d.profile,name:d.customer.name,email:d.customer.email};
+  f.elements.namedItem('region').value=values.region||'';
+  brusaamProfileUpdateCommunes(values.commune||'');
+  brusaamProfileUpdateSectors(values.sector||'');
   for(const [key,value] of Object.entries(values)){if(f.elements.namedItem(key))f.elements.namedItem(key).value=value||'';}
+  $('brusaamProfileGpsStatus').textContent=values.maps_link?'✓ Tienes una ubicación GPS guardada. Puedes actualizarla cuando quieras.':'Puedes guardar tu ubicación si lo deseas. Solo se solicita al presionar el botón.';
  }catch(e){$('brusaamAccountMessage').textContent=e.message;}
 }
 $('brusaamCustomerChangePassword').addEventListener('click',async()=>{
