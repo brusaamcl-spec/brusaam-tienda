@@ -2008,7 +2008,12 @@ footer .contactInfo {
 @media(max-width:600px){.brusaamSlide{flex-basis:65%;}.brusaamSlide img{height:160px;}}
 @media(prefers-reduced-motion:reduce){.brusaamCarousel{scroll-behavior:auto;}}
 
-/* BRUSAAM: carrusel principal con dos promociones */
+/* BRUSAAM: carrusel principal con tres promociones */
+.flowerHeader .brusaamLoyaltyBanner{background:linear-gradient(110deg,#faf7ff,#e9e4ff)!important;color:#442177!important}
+.brusaamLoyaltyBanner strong{color:#6624a4!important;font-size:clamp(23px,3vw,35px)!important}
+.brusaamLoyaltyGoal{font-weight:800;letter-spacing:.6px}
+.brusaamLoyaltyBanner small{display:block;margin-top:7px;font-size:11px}
+
 .brusaamHero{position:relative;width:calc(100% - 32px);max-width:1280px;margin:20px auto 16px;overflow:hidden;border-radius:16px;background:#f3edff;min-height:158px}
 .flowerHeader .brusaamHeroSlide.banner{display:none!important;position:relative;width:100%!important;max-width:none!important;margin:0!important;min-height:158px;padding:22px 54px 42px!important;border-radius:16px;text-align:center;animation:brusaamFade .35s ease both}
 .flowerHeader .brusaamHeroSlide.banner.active{display:block!important}
@@ -2213,9 +2218,16 @@ ${admin ? "" : `
    <p class="freeShippingSubtitle">✨ ¡Combina tus aromas favoritos! ✨</p>
    <p>Compra 2 o más unidades del mismo producto y formato, iguales o de distintos aromas participantes.</p>
   </div>
+  <div class="brusaamHeroSlide banner brusaamLoyaltyBanner" aria-hidden="true">
+   <div>💜 ¡BRUSAAM PREMIA TU FIDELIDAD! 💜</div>
+   <strong>🎉 ¡OBTÉN UN 5% OFF!</strong>
+   <p class="brusaamLoyaltyGoal">AL COMPLETAR 10 COMPRAS</p>
+   <p>✨ Regístrate gratis, acumula compras y recibe tu descuento para la siguiente compra.</p>
+   <small>Beneficio para clientes registrados. Válido en productos sin ofertas ni promociones.</small>
+  </div>
   <button type="button" class="brusaamHeroArrow prev" aria-label="Promoción anterior" onclick="brusaamHeroMove(-1)">‹</button>
   <button type="button" class="brusaamHeroArrow next" aria-label="Promoción siguiente" onclick="brusaamHeroMove(1)">›</button>
-  <div class="brusaamHeroDots"><button type="button" class="active" aria-label="Ver despacho gratis" onclick="brusaamHeroShow(0)"></button><button type="button" aria-label="Ver precio por mayor" onclick="brusaamHeroShow(1)"></button></div>
+  <div class="brusaamHeroDots"><button type="button" class="active" aria-label="Ver despacho gratis" onclick="brusaamHeroShow(0)"></button><button type="button" aria-label="Ver precio por mayor" onclick="brusaamHeroShow(1)"></button><button type="button" aria-label="Ver beneficio de fidelidad" onclick="brusaamHeroShow(2)"></button></div>
  </div>`}
 </header>
  <script>
@@ -3331,16 +3343,6 @@ function productCard(product) {
   card.append(promo);
  }
 
- const stock = node(
-  'div',
-  'Stock: ' + product.stock +
-  (Number(product.special_only) === 1 ? ' unidades' : paperProduct(product)
-   ? ' paquetes'
-   : ' unidades')
- );
-
- stock.className = 'muted';
-
  const add = node('button', '🛒 Agregar');
  const updateAvailability = () => {
   const available = maxQty();
@@ -3363,7 +3365,7 @@ function productCard(product) {
   );
  };
 
- card.append(stock, qtyControls, add);
+ card.append(qtyControls, add);
  clampQty(1);
  updateAvailability();
 
