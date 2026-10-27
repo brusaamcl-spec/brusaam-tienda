@@ -289,6 +289,18 @@ async function initializeSchema(env) {
   }
 
   // V32 Finanzas: tabla privada, separada del catálogo público.
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS shop_product_price_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, product_id INTEGER NOT NULL,
+    changed_at INTEGER NOT NULL, field TEXT NOT NULL,
+    old_value REAL NOT NULL, new_value REAL NOT NULL
+  )`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_brusaam_price_history_product ON shop_product_price_history(product_id,changed_at DESC)`).run();
+  await env.DB.prepare(`CREATE TABLE IF NOT EXISTS shop_order_payments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL,
+    amount INTEGER NOT NULL CHECK(amount>0), paid_at INTEGER NOT NULL,
+    note TEXT NOT NULL DEFAULT ''
+  )`).run();
+  await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_brusaam_order_payments_order ON shop_order_payments(order_id,paid_at)`).run();
   await env.DB.prepare(`CREATE TABLE IF NOT EXISTS shop_product_finances (
     product_id INTEGER PRIMARY KEY,
     cost_with_vat INTEGER NOT NULL DEFAULT 0,
@@ -4493,6 +4505,10 @@ const ADMIN = String.raw`
 
    <form id="productForm" class="hidden">
     <input type="hidden" id="pId">
+    <div id="brusaamHistoryBox" class="hidden" style="padding:12px;border:1px solid #ddd;border-radius:12px;margin:10px 0">
+      <button type="button" id="brusaamViewHistory" class="secondary">📊 Ver historial de precios y costos</button>
+      <div id="brusaamHistoryResult" style="margin-top:10px;max-height:280px;overflow:auto"></div>
+    </div>
 
     <label>Nombre
      <input id="pName" maxlength="160" required>
@@ -5172,6 +5188,8 @@ function clearProduct() {
  $('productForm').reset();
 
  $('pId').value = '';
+ $('brusaamHistoryBox').classList.add('hidden');
+ $('brusaamHistoryResult').replaceChildren();
  $('pImage').value = '';
  $('pMin').value = '2';
  $('pMangaPrice').value = '0';
@@ -5196,6 +5214,8 @@ function fillProductForm(product) {
  $('productForm').classList.remove('hidden');
  $('productFormTitle').textContent='✏️ Edición completa: '+product.name;
  $('pId').value=product.id;
+ $('brusaamHistoryBox').classList.remove('hidden');
+ $('brusaamHistoryResult').replaceChildren();
  $('pName').value=product.name||'';
  $('pDescription').value=product.description||'';
  $('pRetail').value=product.retail;
@@ -5222,6 +5242,18 @@ function fillProductForm(product) {
  openTab('products');
  $('productFormTitle').scrollIntoView({behavior:'smooth',block:'start'});
 }
+$('brusaamViewHistory').onclick=async()=>{
+ const id=Number($('pId').value),root=$('brusaamHistoryResult');root.replaceChildren();
+ if(!id)return;
+ try{
+  const result=await api('/api/admin/products/'+id+'/history');
+  if(!result.history.length){root.textContent='Todavía no hay cambios registrados desde esta actualización.';return;}
+  const names={retail:'Precio detalle',wholesale:'Precio mayorista',cost_with_vat:'Costo de compra',offer_price:'Precio oferta',offer_manga_price:'Oferta manga',manga_price:'Precio manga',operating_percent:'Gastos operativos (%)'};
+  const table=document.createElement('table');table.style.width='100%';
+  const head=document.createElement('tr');for(const t of ['Fecha','Campo','Anterior','Nuevo']){const th=document.createElement('th');th.textContent=t;head.append(th);}table.append(head);
+  for(const row of result.history){const tr=document.createElement('tr');for(const val of [new Date(row.changed_at).toLocaleString('es-CL',{timeZone:'America/Santiago'}),names[row.field]||row.field,row.field==='operating_percent'?row.old_value+'%':salesMoney(row.old_value),row.field==='operating_percent'?row.new_value+'%':salesMoney(row.new_value)]){const td=document.createElement('td');td.textContent=val;tr.append(td);}table.append(tr);}root.append(table);
+ }catch(e){root.textContent=e.message;}
+};
 $('showProductForm').onclick=()=>{clearProduct();$('productFormTitle').textContent='➕ Agregar producto';$('productForm').classList.remove('hidden');$('productFormTitle').scrollIntoView({behavior:'smooth',block:'start'});};
 $('hideProductForm').onclick=()=>{$('productForm').classList.add('hidden');};
 for(const id of ['adminProductSearch','adminProductCategory','adminProductSub','adminProductStatus']) $(id).addEventListener(id==='adminProductSearch'?'input':'change',()=>{
@@ -6564,6 +6596,23 @@ async function renderOrders() {
     delivered.onclick=async()=>{if(!confirm('¿Confirmas que el pedido #'+orderShortCode(order.id)+' fue entregado? Esta acción no modifica el inventario.'))return;delivered.disabled=true;try{await api('/api/admin/orders/'+order.id+'/deliver','POST',{});await renderOrders();}catch(e){alert(e.message);delivered.disabled=false;}};
     body.append(delivered);
    }
+   if(order.status==='confirmed'&&Number(order.delivered_at)>0){
+    const payBox=document.createElement('div');payBox.style.cssText='margin:14px 0;padding:14px;border:1px solid #d5c4ef;border-radius:12px;background:#faf7ff';
+    const total=Number((result.sales||[]).find(x=>x.order_id===order.id)?.total||0);
+    const entries=(result.payments||[]).filter(x=>x.order_id===order.id);
+    const paid=entries.reduce((sum,x)=>sum+Number(x.amount||0),0),balance=Math.max(0,total-paid);
+    const title=document.createElement('strong');title.textContent='💰 Estado de pago: '+(total>0&&balance===0?'🟢 PAGADO':paid>0?'🟡 ABONO PARCIAL':'🔴 PENDIENTE DE PAGO');payBox.append(title);
+    const summary=document.createElement('p');summary.textContent='Total: '+salesMoney(total)+' · Abonado: '+salesMoney(paid)+' · Pendiente: '+salesMoney(balance);payBox.append(summary);
+    if(entries.length){const log=document.createElement('div');log.style.cssText='font-size:13px;margin:8px 0';log.textContent=entries.map(x=>new Date(x.paid_at).toLocaleString('es-CL',{timeZone:'America/Santiago'})+' · '+salesMoney(x.amount)+(x.note?' · '+x.note:'')).join(' | ');payBox.append(log);}
+    if(total>0&&balance>0){
+     const amount=document.createElement('input');amount.type='number';amount.min='1';amount.max=String(balance);amount.step='1';amount.placeholder='Monto abonado';amount.style.maxWidth='180px';
+     const note=document.createElement('input');note.placeholder='Nota del abono (opcional)';note.maxLength=160;
+     const save=document.createElement('button');save.type='button';save.textContent='Guardar abono / pago';save.className='secondary';
+     save.onclick=async()=>{const value=Number(amount.value);if(!Number.isSafeInteger(value)||value<=0||value>balance)return alert('Ingresa un monto entre $1 y '+salesMoney(balance));if(!confirm('¿Registrar pago de '+salesMoney(value)+' en este pedido?'))return;save.disabled=true;try{await api('/api/admin/orders/'+order.id+'/payments','POST',{amount:value,note:note.value});await renderOrders();}catch(e){alert(e.message);save.disabled=false;}};
+     payBox.append(amount,note,save);
+    }
+    body.append(payBox);
+   }
    const position=sectionPositions.get(order.id);
    if(position!==undefined){
     const turn=document.createElement('div');turn.textContent='N.º '+position;turn.style.cssText='font-weight:800;color:#63358e;margin:14px 0 4px 4px;font-size:16px';
@@ -7411,8 +7460,9 @@ export default {
         const commercial=(await env.DB.prepare('SELECT * FROM shop_order_commercial_lines WHERE order_id IN (SELECT id FROM shop_orders ORDER BY created_at DESC LIMIT 250)').all()).results || [];
         const pricing=(await env.DB.prepare('SELECT * FROM shop_order_pricing WHERE order_id IN (SELECT id FROM shop_orders ORDER BY created_at DESC LIMIT 250)').all()).results || [];
         const sales=(await env.DB.prepare("SELECT order_id,total,created_at FROM shop_sales WHERE source='online' AND order_id IN (SELECT id FROM shop_orders ORDER BY created_at DESC LIMIT 250)").all()).results || [];
+        const payments=(await env.DB.prepare('SELECT id,order_id,amount,paid_at,note FROM shop_order_payments WHERE order_id IN (SELECT id FROM shop_orders ORDER BY created_at DESC LIMIT 250) ORDER BY paid_at,id').all()).results||[];
         const holidays=await env.DB.prepare("SELECT value FROM shop_settings WHERE key='holiday_dates'").first();
-        return reply({orders,items,commercial,pricing,sales,holidays:JSON.parse(holidays?.value||'[]')});
+        return reply({orders,items,commercial,pricing,sales,payments,holidays:JSON.parse(holidays?.value||'[]')});
       }
       // Modificación auditada del despacho por pedido, sin alterar tarifas globales.
       const shippingAdjustmentMatch=path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})\/shipping-adjustment$/i);
@@ -7578,6 +7628,22 @@ export default {
        const updated=await env.DB.prepare("UPDATE shop_orders SET pickup_ready_at=? WHERE id=? AND status='confirmed' AND delivery_method='pickup' AND dispatched_at=0 AND pickup_ready_at=0 AND delivered_at=0").bind(Date.now(),id).run();
        if(Number(updated.meta?.changes)!==1)return reply({error:'Solo puedes preparar retiros confirmados y aún no entregados.'},409);
        return reply({ok:true});
+      }
+      const paymentMatch=path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})\/payments$/i);
+      if(paymentMatch&&method==='POST'){
+       if(!checkOrigin(request))return reply({error:'Origen no permitido'},403);
+       const id=paymentMatch[1],body=await request.json().catch(()=>null);
+       const amount=Number(body?.amount),note=cleanOrderText(body?.note||'',160);
+       if(!Number.isSafeInteger(amount)||amount<=0||amount>100000000)return reply({error:'Ingresa un abono válido.'},400);
+       const order=await env.DB.prepare('SELECT status,delivered_at FROM shop_orders WHERE id=?').bind(id).first();
+       if(!order||order.status!=='confirmed'||!Number(order.delivered_at))return reply({error:'Solo puedes registrar abonos en pedidos entregados.'},409);
+       const sale=await env.DB.prepare("SELECT total FROM shop_sales WHERE order_id=? AND source='online'").bind(id).first();
+       if(!sale||!Number.isSafeInteger(Number(sale.total))||Number(sale.total)<=0)return reply({error:'No existe un total de venta válido para este pedido.'},409);
+       const paid=await env.DB.prepare('SELECT COALESCE(SUM(amount),0) AS total FROM shop_order_payments WHERE order_id=?').bind(id).first();
+       const remaining=Number(sale.total)-Number(paid?.total||0);
+       if(amount>remaining)return reply({error:'El abono supera el saldo pendiente de '+remaining+' pesos.'},409);
+       await env.DB.prepare('INSERT INTO shop_order_payments(order_id,amount,paid_at,note) VALUES(?,?,?,?)').bind(id,amount,Date.now(),note).run();
+       return reply({ok:true,remaining:remaining-amount,status:remaining===amount?'paid':'partial'});
       }
       const deliverMatch=path.match(/^\/api\/admin\/orders\/([a-f0-9-]{36})\/deliver$/i);
       if(deliverMatch&&method==='POST'){
@@ -7890,6 +7956,11 @@ export default {
         });
       }
 
+      const historyMatch=path.match(/^\/api\/admin\/products\/(\d+)\/history$/);
+      if(historyMatch&&method==='GET'){
+        const rows=(await env.DB.prepare('SELECT changed_at,field,old_value,new_value FROM shop_product_price_history WHERE product_id=? ORDER BY id DESC LIMIT 200').bind(Number(historyMatch[1])).all()).results||[];
+        return reply({history:rows});
+      }
       if (
         productId &&
         method === "PUT"
@@ -7903,6 +7974,9 @@ export default {
           }, 400);
         }
 
+        const previousProduct=await env.DB.prepare('SELECT retail,wholesale,offer_price,offer_manga_price,manga_price FROM products WHERE id=?').bind(Number(productId[1])).first();
+        if(!previousProduct)return reply({error:'Producto no encontrado'},404);
+        const previousFinance=await env.DB.prepare('SELECT cost_with_vat,operating_percent FROM shop_product_finances WHERE product_id=?').bind(Number(productId[1])).first();
         await env.DB.prepare(`
           UPDATE products SET
            name=?,
@@ -7955,6 +8029,10 @@ export default {
         ).run();
 
         await env.DB.prepare('INSERT INTO shop_product_finances(product_id,cost_with_vat,operating_percent) VALUES(?,?,?) ON CONFLICT(product_id) DO UPDATE SET cost_with_vat=excluded.cost_with_vat,operating_percent=excluded.operating_percent').bind(Number(productId[1]),product.cost_with_vat||0,product.operating_percent??20).run();
+        const oldValues={...previousProduct,cost_with_vat:previousFinance?.cost_with_vat??0,operating_percent:previousFinance?.operating_percent??20};
+        const newValues={retail:product.retail,wholesale:product.wholesale,offer_price:product.offer_price||0,offer_manga_price:product.offer_manga_price||0,manga_price:product.manga_price||0,cost_with_vat:product.cost_with_vat||0,operating_percent:product.operating_percent??20};
+        const changes=Object.keys(newValues).filter(key=>Number(oldValues[key])!==Number(newValues[key]));
+        if(changes.length)await env.DB.batch(changes.map(field=>env.DB.prepare('INSERT INTO shop_product_price_history(product_id,changed_at,field,old_value,new_value) VALUES(?,?,?,?,?)').bind(Number(productId[1]),Date.now(),field,Number(oldValues[field])||0,Number(newValues[field])||0)));
         return reply({ ok: true });
       }
 
