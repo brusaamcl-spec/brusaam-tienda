@@ -4969,6 +4969,9 @@ $('brusaamAccountForm').addEventListener('submit',async event=>{
   if(!res.ok)throw Error(data.error||'No se pudo completar la solicitud (HTTP '+res.status+').');
   $('brusaamAccountPassword').value='';brusaamAccountShow(data.customer);
   msg.textContent='✓ Cuenta activa.';
+  // Tras registrarse o iniciar sesión, volver directamente a la tienda.
+  // El perfil y los pedidos solo se muestran cuando el cliente abre Mi cuenta.
+  brusaamAccountClose();
  }catch(e){msg.textContent=e.message}
  finally{submit.disabled=false}
 });
